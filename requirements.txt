@@ -1,0 +1,9 @@
+fastapi==0.111.0
+uvicorn==0.29.0
+azure-ai-contentsafety==1.0.0
+azure-search-documents==11.4.0
+azure-keyvault-secrets==4.8.0
+azure-identity==1.15.0
+semantic-kernel==1.1.0
+stormpy==1.7.0
+python-json-logger==2.0.7
