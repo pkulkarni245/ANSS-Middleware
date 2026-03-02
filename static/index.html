@@ -430,9 +430,22 @@
             </div>
 
             <div class="glass-panel attention-box">
-                <h4>✨ NEW: EMBEDDED TELEMETRY</h4>
-                <p>The backend ASCII-Art Pipeline Flowchart is now streamed directly into this UI via a collapsible
-                    terminal widget below each response!</p>
+                <h4>⚠️ ARCHITECTURAL LOGS</h4>
+                <p>The backend ASCII-Art Pipeline Flowchart is streamed locally to the chat bubbles, but also aggregated
+                    below in real-time.</p>
+            </div>
+
+            <!-- Global Telemetry Widget -->
+            <div class="terminal-widget" id="global-telemetry-widget"
+                style="margin-top: 0; max-height: 400px; display: flex; flex-direction: column;">
+                <div class="terminal-header">
+                    <span>GLOBAL PIPELINE LOGS</span>
+                    <div class="terminal-toggle" id="global-telemetry-toggle">▲ Hide</div>
+                </div>
+                <div class="terminal-content" id="global-telemetry-content"
+                    style="overflow-y: auto; flex-grow: 1; padding-top: 0.5rem;">
+                    <div style="color: #64748b; font-style: italic;">[SYSTEM] ANSS Orchestrator Initialized...</div>
+                </div>
             </div>
         </div>
 
@@ -538,6 +551,10 @@
 
                 if (response.ok) {
                     const data = await response.json();
+
+                    if (data.telemetry) {
+                        appendToGlobalTelemetry(data.telemetry);
+                    }
 
                     if (data.status === "blocked_ingress") {
                         addSystemInterception("INGRESS FIREWALL", "Azure AI Content Safety detected a prompt injection or policy violation. The payload was dropped before reaching the LLM context window.", data.telemetry);
