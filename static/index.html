@@ -464,6 +464,42 @@
         const promptInput = document.getElementById('prompt-input');
         const sendBtn = document.getElementById('send-btn');
         const typingIndicator = document.getElementById('typing-indicator');
+        const globalTelemetryWidget = document.getElementById('global-telemetry-widget');
+        const globalTelemetryToggle = document.getElementById('global-telemetry-toggle');
+        const globalTelemetryContent = document.getElementById('global-telemetry-content');
+
+        // Global Telemetry Toggle
+        globalTelemetryToggle.parentElement.onclick = function () {
+            globalTelemetryWidget.classList.toggle('collapsed');
+            if (globalTelemetryWidget.classList.contains('collapsed')) {
+                globalTelemetryToggle.innerText = '▼ Show';
+            } else {
+                globalTelemetryToggle.innerText = '▲ Hide';
+            }
+        };
+
+        function appendToGlobalTelemetry(telemetryLines) {
+            const separator = document.createElement('div');
+            separator.innerText = '-'.repeat(40);
+            separator.style.color = '#334155';
+            separator.style.margin = '0.5rem 0';
+            globalTelemetryContent.appendChild(separator);
+
+            telemetryLines.forEach(line => {
+                const lineDiv = document.createElement('div');
+                lineDiv.innerText = line;
+
+                // Add some color coding for blocked actions
+                if (line.includes('[SHIELD: BLOCKED X]') || line.includes('[PCTL: HARD BLOCKED X]')) {
+                    lineDiv.style.color = '#ef4444'; // red
+                } else if (line.includes('[SHIELD: PASS]') || line.includes('[RAG: VERIFIED]')) {
+                    lineDiv.style.color = '#10b981'; // green
+                }
+
+                globalTelemetryContent.appendChild(lineDiv);
+            });
+            globalTelemetryContent.scrollTop = globalTelemetryContent.scrollHeight;
+        }
 
         promptInput.addEventListener('keypress', function (e) {
             if (e.key === 'Enter') sendMessage();
