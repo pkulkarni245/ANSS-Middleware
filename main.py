@@ -117,22 +117,26 @@ async def chat_endpoint(request: ChatRequest):
     """
     user_prompt = request.prompt
     logger.info("Received new chat request.", extra={"prompt_length": len(user_prompt)})
+    
+    # Store the telemetry trace to return to the UI
+    trace = ["[ANSS TELEMETRY] ──> [USER PAYLOAD RECEIVED]"]
     print("\n" + "="*60)
-    print(f"[ANSS TELEMETRY] ──> [USER PAYLOAD RECEIVED]")
+    print(trace[-1])
     
     # a) Pass input to ingress_shield.py
     is_safe_prompt = ingress_shield.scan_prompt(user_prompt)
     if not is_safe_prompt:
-        print(f"[ANSS TELEMETRY] ──> [SHIELD: BLOCKED X] ──X Pipeline Terminated (Jailbreak Detected)")
-        raise HTTPException(
-            status_code=403, 
-            detail="Forbidden: Request blocked by API Firewall (Content Safety Violation)."
-        )
+        trace.append("[ANSS TELEMETRY] ──> [SHIELD: BLOCKED X] ──X Pipeline Terminated (Jailbreak Detected)")
+        print(trace[-1])
+        # We return 200 with a special flag so the UI can render the telemetry properly instead of just throwing a hard 403 error.
+        return {"response": "[API FIREWALL] Request blocked by Azure Content Safety.", "telemetry": trace, "status": "blocked_ingress"}
         
     # b) Call secure_rag.py to get verified context
-    print(f"[ANSS TELEMETRY] ──> [SHIELD: PASS] ──> [RAG] Fetching Verifiable Context...")
+    trace.append("[ANSS TELEMETRY] ──> [SHIELD: PASS] ──> [RAG] Fetching Verifiable Context...")
+    print(trace[-1])
     verified_context = secure_rag.retrieve_and_verify(user_prompt)
-    print(f"[ANSS TELEMETRY] ──> [SHIELD: PASS] ──> [RAG: VERIFIED] ──> [LLM] Agent Invocation...")
+    trace.append("[ANSS TELEMETRY] ──> [SHIELD: PASS] ──> [RAG: VERIFIED] ──> [LLM] Agent Invocation...")
+    print(trace[-1])
     
     # c) Append the verified context to the prompt
     augmented_prompt = f"""
@@ -168,17 +172,25 @@ async def chat_endpoint(request: ChatRequest):
         # we still explicitly demonstrate the PCTL middleware intercepting real Python tool calls!
         if "transfer" in user_prompt.lower():
             logger.info("Mock LLM Fallback: Simulating LLM attempting to call transfer_funds tool.")
-            print(f"[ANSS TELEMETRY] ──> [LLM: TOOL INTENT] ──> [PCTL: INTERCEPTING]...")
+            trace.append("[ANSS TELEMETRY] ──> [LLM: TOOL INTENT] ──> [PCTL: INTERCEPTING]...")
+            print(trace[-1])
             tools = FinanceTools()
             # The tool inherently triggers the PCTLSecurityMiddleware before execution.
             mock_result = tools.transfer_funds(amount=1000.0, destination="attacker_account")
             if "[SECURITY EXCEPTION]" in mock_result:
-                print(f"[ANSS TELEMETRY] ──> [PCTL: HARD BLOCKED X] ──X Deterministic Mathematical Proof Failed")
-            return {"response": mock_result}
+                trace.append("[ANSS TELEMETRY] ──> [PCTL: HARD BLOCKED X] ──X Deterministic Mathematical Proof Failed")
+                print(trace[-1])
+                return {"response": mock_result, "telemetry": trace, "status": "blocked_pctl"}
+            return {"response": mock_result, "telemetry": trace, "status": "success"}
             
         # Generic Prompt Resiliency 
-        print(f"[ANSS TELEMETRY] ──> [LLM: GENERIC INTENT] ──> [PCTL: BYPASSED] ──> Safe Response Generated")
-        return {"response": "I am a financial assistant protected by the ANSS Zero-Trust Middleware. I can help you safely authorize transactions, but I cannot perform operations outside of my strict financial scope."}
+        trace.append("[ANSS TELEMETRY] ──> [LLM: GENERIC INTENT] ──> [PCTL: BYPASSED] ──> Safe Response Generated")
+        print(trace[-1])
+        return {
+            "response": "I am a financial assistant protected by the ANSS Zero-Trust Middleware. I can help you safely authorize transactions, but I cannot perform operations outside of my strict financial scope.",
+            "telemetry": trace,
+            "status": "success"
+        }
 
 if __name__ == "__main__":
     import uvicorn
