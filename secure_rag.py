@@ -39,7 +39,11 @@ class SecureRAG:
         if kv_uri:
             # DefaultAzureCredential supports managed identity, Azure CLI, Env Vars etc.
             # Best practice for Key Vault access.
-            self.secret_client = SecretClient(vault_url=kv_uri, credential=DefaultAzureCredential())
+            try:
+                self.secret_client = SecretClient(vault_url=kv_uri, credential=DefaultAzureCredential())
+            except Exception as e:
+                logger.error(f"Failed to initialize SecretClient with DefaultAzureCredential: {e}")
+                self.secret_client = None
         else:
             logger.warning("Key Vault URI not found. SecureRAG operating in mock mode.")
             self.secret_client = None

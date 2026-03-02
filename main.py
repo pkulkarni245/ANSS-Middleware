@@ -144,4 +144,4 @@ async def chat_endpoint(request: ChatRequest):
 if __name__ == "__main__":
     import uvicorn
     # Containerized apps commonly bind to 0.0.0.0 for orchestration (like Docker/Azure App Service)
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("main:app", host="0.0.0.0", port=80, reload=True)
