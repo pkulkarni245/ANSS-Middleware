@@ -8,3 +8,4 @@ semantic-kernel==1.1.0
 pydantic==2.7.4
 stormpy
 python-json-logger==2.0.7
+aiofiles==23.2.1
