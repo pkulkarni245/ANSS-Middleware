@@ -134,10 +134,11 @@ async def chat_endpoint(request: ChatRequest):
     try:
         # In this hackathon MVP we use invoke_prompt which leverages the registered plugins automatically
         # if tool calling is enabled on the deployment.
+        # In SK 1.1.0, function_name and plugin_name are strongly enforced positional/kwargs.
         invocation_result = await agent_kernel.invoke_prompt(
-            prompt=augmented_prompt,
-            plugin_name="Finance",
-            # Additional execution settings for tool calling would go here
+            function_name="chat_interaction",
+            plugin_name="AgentPlugin",
+            prompt=augmented_prompt
         )
         response_text = str(invocation_result)
         
