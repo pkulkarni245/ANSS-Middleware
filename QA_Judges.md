@@ -28,3 +28,14 @@ Our Secure RAG implementation verifies the cryptographic integrity of *every* do
 2. **Access Control & Execution (Deterministic):** *Even if* the probabilistic layer fails completely and mistakenly decides to trigger the `transfer_funds` tool, the tool **will not execute**. Our PCTL Root of Trust sits exactly at the execution boundary. It intercepts the tool call and evaluates the proposed action against the mathematical state properties (e.g., `user_authenticated == True`). 
 
 By doing this, we allow the AI to retain its fluid, probabilistic, human-like reasoning regarding *conversations*, while enforcing a mathematically guaranteed, deterministic brick wall around *actions*. The system is mathematically guaranteed because the probability of the tool executing without meeting the formal PRISM state requirements is identically 0%.
+
+### Q7: If it is mathematical, can you explain the actual math underneath the PCTL Root of Trust?
+**A:** Yes. The core math relies on **Model Checking** over a **Discrete-Time Markov Chain (DTMC)**.
+
+1. **The State Space ($S$):** We represent the entire application environment as a finite set of states (e.g., $S_0$: Logged Out, $S_1$: Authenticated, $S_2$: Transferring Funds).
+2. **The Transition Matrix ($P$):** We define the valid transition probabilities between states. In a strict deterministic security policy, transitions are binary ($0$ or $1$). For example, moving from $S_0$ (Logged Out) to $S_2$ (Transferring Funds) has a transition probability of $P_{0,2} = 0$.
+3. **The PCTL Specification ($\Phi$):** We write the global security requirement in Probabilistic Computation Tree Logic. 
+   - Example Property: `P>=1 [ F "transfer_funds" & !"user_authenticated" ]`
+   - **Translation:** What is the probability (`P`) that in the future (`F`), the system reaches the state `"transfer_funds"` while the state `"user_authenticated"` is FALSE?
+4. **The Model Checker (`stormpy`):** When the LLM attempts to execute the tool, the middleware halts execution. `stormpy` computes the probability of the PCTL specification ($\Phi$) being true given the current DTMC state matrix. 
+5. **The Proof:** Because $P_{0,2} = 0$, the exact mathematical probability of the specification is `0.0`. If the required operational threshold (e.g., $P=1.0$) is not met, the equation yields `FALSE`, and the Python execution is hard-blocked. It is not an LLM deciding it's unsafe; it is an abstract syntax tree evaluating a boolean equation over a defined matrix.
