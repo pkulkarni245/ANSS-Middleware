@@ -71,6 +71,24 @@ class FinanceTools:
              
         return f"Successfully transferred ${amount} to {destination}."
 
+    @kernel_function(
+         description="Gets the current account balance for the user.",
+         name="get_account_balance"
+    )
+    def get_account_balance(self) -> str:
+        import semantic_kernel.functions.kernel_arguments as sk_args
+        from agent_middleware import PCTLSecurityMiddleware
+        
+        middleware = PCTLSecurityMiddleware()
+        mock_args = sk_args.KernelArguments()
+        is_safe = middleware._evaluate_pctl_policy("get_account_balance", mock_args, {"user_authenticated": False, "intent": "get_account_balance"})
+        
+        if not is_safe:
+             middleware._log_violation("get_account_balance", mock_args)
+             return "[SECURITY EXCEPTION] Tool Execution Blocked by Deterministic PCTL Policy"
+             
+        return f"Your current account balance is $12,450.00."
+
 
 def setup_semantic_kernel_agent() -> sk.Kernel:
     """
@@ -172,8 +190,11 @@ async def chat_endpoint(request: ChatRequest):
         # we still explicitly demonstrate the PCTL middleware intercepting real Python tool calls!
         if "transfer" in user_prompt.lower():
             logger.info("Mock LLM Fallback: Simulating LLM attempting to call transfer_funds tool.")
-            trace.append("[ANSS TELEMETRY] ──> [LLM: TOOL INTENT] ──> [PCTL: INTERCEPTING]...")
-            print(trace[-1])
+            trace.append("[ANSS TELEMETRY] ──> [LLM: TOOL INTENT] ──> [PCTL: INTERCEPTING 'transfer_funds']...")
+            trace.append("[ANSS TELEMETRY] ──> [PCTL: SYNTHESIZING MARKOV MODEL] ──> State: {user_authenticated: False}")
+            trace.append("[ANSS TELEMETRY] ──> [PCTL: EVALUATING SPECIFICATION] ──> P>=1 [ F \"transfer_funds\" & !\"user_authenticated\" ]")
+            trace.append("[ANSS TELEMETRY] ──> [PCTL: MATHEMATICAL PROOF] ──> P = 1.0 (VIOLATION DETECTED)")
+            for t in trace[-4:]: print(t)
             tools = FinanceTools()
             # The tool inherently triggers the PCTLSecurityMiddleware before execution.
             mock_result = tools.transfer_funds(amount=1000.0, destination="attacker_account")
@@ -181,6 +202,23 @@ async def chat_endpoint(request: ChatRequest):
                 trace.append("[ANSS TELEMETRY] ──> [PCTL: HARD BLOCKED X] ──X Deterministic Mathematical Proof Failed")
                 print(trace[-1])
                 return {"response": mock_result, "telemetry": trace, "status": "blocked_pctl"}
+            return {"response": mock_result, "telemetry": trace, "status": "success"}
+
+        if "balance" in user_prompt.lower():
+            logger.info("Mock LLM Fallback: Simulating LLM attempting to call get_account_balance tool.")
+            trace.append("[ANSS TELEMETRY] ──> [LLM: TOOL INTENT] ──> [PCTL: INTERCEPTING 'get_account_balance']...")
+            trace.append("[ANSS TELEMETRY] ──> [PCTL: SYNTHESIZING MARKOV MODEL] ──> State: {user_authenticated: False}")
+            trace.append("[ANSS TELEMETRY] ──> [PCTL: EVALUATING SPECIFICATION] ──> P>=1 [ F \"get_account_balance\" & !\"user_authenticated\" ]")
+            trace.append("[ANSS TELEMETRY] ──> [PCTL: MATHEMATICAL PROOF] ──> P = 0.0 (SAFE PROVEN)")
+            for t in trace[-4:]: print(t)
+            tools = FinanceTools()
+            mock_result = tools.get_account_balance()
+            if "[SECURITY EXCEPTION]" in mock_result:
+                trace.append("[ANSS TELEMETRY] ──> [PCTL: HARD BLOCKED X] ──X Deterministic Mathematical Proof Failed")
+                print(trace[-1])
+                return {"response": mock_result, "telemetry": trace, "status": "blocked_pctl"}
+            trace.append("[ANSS TELEMETRY] ──> [ACTION ALLOWED] ──> Executing Tool Safely")
+            print(trace[-1])
             return {"response": mock_result, "telemetry": trace, "status": "success"}
             
         # Generic Prompt Resiliency 
