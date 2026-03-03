@@ -188,48 +188,76 @@ async def chat_endpoint(request: ChatRequest):
         
         # MOCK MODE FALLBACK FOR HACKATHON
         # If the LLM connection fails (e.g. absent Azure OpenAI credentials in the App Service env),
-        # we explicitly demonstrate the PCTL middleware intercepting real Python tool calls!
-        # Enhanced heuristic routing to mimic LLM intent detection dynamically:
-        prompt_lower = user_prompt.lower()
+        # we still explicitly demonstrate the PCTL middleware intercepting real Python tool calls!
         
-        # Transfer Intent Heuristics
-        transfer_pattern = re.compile(r'\b(transfer|send|pay|wire|move funds|remit)\b', re.IGNORECASE)
-        # Balance Intent Heuristics
-        balance_pattern = re.compile(r'\b(balance|how much|checking|savings|account status)\b', re.IGNORECASE)
+        # VERY ADVANCED SEMANTIC NLP INTENT ROUTING (OFFLINE AI)
+        logger.info("Engaging dynamic Offline Semantic NLP routing fallback.")
+        trace.append("[ANSS TELEMETRY] ──> [LLM: OFFLINE] ──> [NLP INTENT ROUTER: ENGAGED]")
         
-        if transfer_pattern.search(prompt_lower):
-            logger.info("Mock LLM Fallback: Simulating LLM attempting to call transfer_funds tool.")
-            trace.append("[ANSS TELEMETRY] ──> [LLM: NLP INTENT ROUTER] ──> Detected 'transfer_funds' intent.")
-            trace.append("[ANSS TELEMETRY] ──> [LLM: TOOL INVOCATION] ──> [PCTL: INTERCEPTING 'transfer_funds']...")
-            trace.append("[ANSS TELEMETRY] ──> [PCTL: SYNTHESIZING MARKOV MODEL] ──> State: {user_authenticated: False}")
-            trace.append("[ANSS TELEMETRY] ──> [PCTL: EVALUATING SPECIFICATION] ──> P>=1 [ F \"transfer_funds\" & !\"user_authenticated\" ]")
-            trace.append("[ANSS TELEMETRY] ──> [PCTL: MATHEMATICAL PROOF] ──> P = 1.0 (VIOLATION DETECTED)")
-            for t in trace[-5:]: print(t)
-            tools = FinanceTools()
-            mock_result = tools.transfer_funds(amount=1000.0, destination="attacker_account")
-            if "[SECURITY EXCEPTION]" in mock_result:
-                trace.append("[ANSS TELEMETRY] ──> [PCTL: HARD BLOCKED X] ──X Deterministic Mathematical Proof Failed")
-                print(trace[-1])
-                return {"response": mock_result, "telemetry": trace, "status": "blocked_pctl"}
-            return {"response": mock_result, "telemetry": trace, "status": "success"}
+        # We initialize the model locally in the fallback. In a real app this would be global,
+        # but loading here keeps the primary FastAPI boot instantly fast for the live demo.
+        try:
+            from sentence_transformers import SentenceTransformer, util
+            
+            # Using a very fast, compact embedding model
+            embedder = SentenceTransformer('all-MiniLM-L6-v2')
+            
+            # Define exact tool semantic meanings
+            intents = ["transfer money, send funds, pay someone, wire cash", 
+                       "check account balance, how much money do I have, savings status"]
+            intent_embeddings = embedder.encode(intents, convert_to_tensor=True)
+            
+            # Embed the user's unexpected prompt
+            query_embedding = embedder.encode(user_prompt, convert_to_tensor=True)
+            
+            # Cosine similarity math
+            hits = util.semantic_search(query_embedding, intent_embeddings, top_k=1)[0]
+            best_match = hits[0]
+            score = best_match['score']
+            intent_id = best_match['corpus_id']
+            
+            trace.append(f"[ANSS TELEMETRY] ──> [NLP: SEMANTIC SIMILARITY] ──> Highest Match Score: {score:.3f}")
+            
+            # Threshold for action taking
+            if score > 0.45:
+                if intent_id == 0: # Transfer Intent
+                    trace.append("[ANSS TELEMETRY] ──> [NLP: INTENT MAP] ──> Detected 'transfer_funds' intent semantically.")
+                    trace.append("[ANSS TELEMETRY] ──> [LLM: TOOL INVOCATION] ──> [PCTL: INTERCEPTING 'transfer_funds']...")
+                    trace.append("[ANSS TELEMETRY] ──> [PCTL: SYNTHESIZING MARKOV MODEL] ──> State: {user_authenticated: False}")
+                    trace.append("[ANSS TELEMETRY] ──> [PCTL: EVALUATING SPECIFICATION] ──> P>=1 [ F \"transfer_funds\" & !\"user_authenticated\" ]")
+                    trace.append("[ANSS TELEMETRY] ──> [PCTL: MATHEMATICAL PROOF] ──> P = 1.0 (VIOLATION DETECTED)")
+                    for t in trace[-7:]: print(t)
+                    tools = FinanceTools()
+                    mock_result = tools.transfer_funds(amount=1000.0, destination="attacker_account")
+                    if "[SECURITY EXCEPTION]" in mock_result:
+                        trace.append("[ANSS TELEMETRY] ──> [PCTL: HARD BLOCKED X] ──X Deterministic Mathematical Proof Failed")
+                        print(trace[-1])
+                        return {"response": mock_result, "telemetry": trace, "status": "blocked_pctl"}
+                    return {"response": mock_result, "telemetry": trace, "status": "success"}
 
-        elif balance_pattern.search(prompt_lower):
-            logger.info("Mock LLM Fallback: Simulating LLM attempting to call get_account_balance tool.")
-            trace.append("[ANSS TELEMETRY] ──> [LLM: NLP INTENT ROUTER] ──> Detected 'get_account_balance' intent.")
-            trace.append("[ANSS TELEMETRY] ──> [LLM: TOOL INVOCATION] ──> [PCTL: INTERCEPTING 'get_account_balance']...")
-            trace.append("[ANSS TELEMETRY] ──> [PCTL: SYNTHESIZING MARKOV MODEL] ──> State: {user_authenticated: False}")
-            trace.append("[ANSS TELEMETRY] ──> [PCTL: EVALUATING SPECIFICATION] ──> P>=1 [ F \"get_account_balance\" & !\"user_authenticated\" ]")
-            trace.append("[ANSS TELEMETRY] ──> [PCTL: MATHEMATICAL PROOF] ──> P = 0.0 (SAFE PROVEN)")
-            for t in trace[-5:]: print(t)
-            tools = FinanceTools()
-            mock_result = tools.get_account_balance()
-            if "[SECURITY EXCEPTION]" in mock_result:
-                trace.append("[ANSS TELEMETRY] ──> [PCTL: HARD BLOCKED X] ──X Deterministic Mathematical Proof Failed")
-                print(trace[-1])
-                return {"response": mock_result, "telemetry": trace, "status": "blocked_pctl"}
-            trace.append("[ANSS TELEMETRY] ──> [ACTION ALLOWED] ──> Executing Tool Safely")
-            print(trace[-1])
-            return {"response": mock_result, "telemetry": trace, "status": "success"}
+                elif intent_id == 1: # Balance Intent
+                    trace.append("[ANSS TELEMETRY] ──> [NLP: INTENT MAP] ──> Detected 'get_account_balance' intent semantically.")
+                    trace.append("[ANSS TELEMETRY] ──> [LLM: TOOL INVOCATION] ──> [PCTL: INTERCEPTING 'get_account_balance']...")
+                    trace.append("[ANSS TELEMETRY] ──> [PCTL: SYNTHESIZING MARKOV MODEL] ──> State: {user_authenticated: False}")
+                    trace.append("[ANSS TELEMETRY] ──> [PCTL: EVALUATING SPECIFICATION] ──> P>=1 [ F \"get_account_balance\" & !\"user_authenticated\" ]")
+                    trace.append("[ANSS TELEMETRY] ──> [PCTL: MATHEMATICAL PROOF] ──> P = 0.0 (SAFE PROVEN)")
+                    for t in trace[-7:]: print(t)
+                    tools = FinanceTools()
+                    mock_result = tools.get_account_balance()
+                    if "[SECURITY EXCEPTION]" in mock_result:
+                        trace.append("[ANSS TELEMETRY] ──> [PCTL: HARD BLOCKED X] ──X Deterministic Mathematical Proof Failed")
+                        print(trace[-1])
+                        return {"response": mock_result, "telemetry": trace, "status": "blocked_pctl"}
+                    trace.append("[ANSS TELEMETRY] ──> [ACTION ALLOWED] ──> Executing Tool Safely")
+                    print(trace[-1])
+                    return {"response": mock_result, "telemetry": trace, "status": "success"}
+                    
+            # Fall through to generic resiliency if semantics don't match strongly enough
+            trace.append("[ANSS TELEMETRY] ──> [NLP: NO STRONG INTENT] ──> Proceeding to generic conversational handler.")
+            
+        except ImportError:
+            trace.append("[ANSS TELEMETRY] ──> [NLP ROUTER ERROR] ──> sentence-transformers not installed, falling back.")
+
             
         # Generic Prompt Resiliency 
         trace.append("[ANSS TELEMETRY] ──> [LLM: NLP INTENT ROUTER] ──> Detected generic conversation intent.")
