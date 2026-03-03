@@ -21,3 +21,10 @@ Our Secure RAG implementation verifies the cryptographic integrity of *every* do
 
 ### Q5: Can this architecture support streaming responses (WebSockets) for a better UX?
 **A:** Yes. The deterministic interception happens *before* tool execution, not necessarily at the very end of the generation. In a WebSocket implementation, the LLM can stream its "thoughts" or conversational text back to the user in real-time. When it emits a tool-call token, the stream pauses, the PCTL middleware evaluates the formal logic, and if blocked, the middleware injects the `[SECURITY EXCEPTION]` directly into the stream. The rigid security boundary is maintained without sacrificing real-time UX.
+
+### Q6: If you use an LLM or an NLP Embedding Model to figure out what the user wants to do, isn't your system still fundamentally probabilistic?
+**A:** This is the most crucial distinction in the ANSS architecture: **We separate Intent Generation from Execution Authorization.**
+1. **Intent Generation (Probabilistic):** Yes, the LLM (or our offline semantic fallback router) using cosine similarity is probabilistic. It guesses what the user *wants* to do. It might hallucinate. It might be tricked by a clever prompt.
+2. **Access Control & Execution (Deterministic):** *Even if* the probabilistic layer fails completely and mistakenly decides to trigger the `transfer_funds` tool, the tool **will not execute**. Our PCTL Root of Trust sits exactly at the execution boundary. It intercepts the tool call and evaluates the proposed action against the mathematical state properties (e.g., `user_authenticated == True`). 
+
+By doing this, we allow the AI to retain its fluid, probabilistic, human-like reasoning regarding *conversations*, while enforcing a mathematically guaranteed, deterministic brick wall around *actions*. The system is mathematically guaranteed because the probability of the tool executing without meeting the formal PRISM state requirements is identically 0%.
