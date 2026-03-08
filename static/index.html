@@ -579,6 +579,59 @@
             promptInput.focus();
         }
 
+        let ws;
+        function connectWebSocket() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}/ws/chat`;
+            ws = new WebSocket(wsUrl);
+
+            ws.onopen = () => console.log("[ANSS] WebSocket Connected");
+            ws.onclose = () => {
+                console.log("[ANSS] WebSocket Disconnected. Reconnecting...");
+                setTimeout(connectWebSocket, 3000);
+            };
+            ws.onerror = (err) => console.error("WebSocket Error:", err);
+
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+
+                if (data.type === "telemetry") {
+                    if (data.telemetry) appendToGlobalTelemetry(data.telemetry);
+
+                    if (data.status === "blocked_ingress") {
+                        typingIndicator.style.display = 'none';
+                        addSystemInterception("INGRESS FIREWALL", "Azure AI Content Safety detected a prompt injection or policy violation. The payload was dropped before reaching the LLM context window.", data.telemetry);
+                        sendBtn.disabled = false;
+                        activeMessageDiv = null;
+                    } else if (data.status === "blocked_pctl") {
+                        typingIndicator.style.display = 'none';
+                        addSystemInterception("PCTL ROOT OF TRUST", "The LLM attempted to execute a stochastic tool. The PCTL state machine evaluated the formal proof and HARD BLOCKED the action.", data.telemetry);
+                        sendBtn.disabled = false;
+                        activeMessageDiv = null;
+                    } else if (data.status === "success") {
+                        // Stream finished successfully
+                        sendBtn.disabled = false;
+                        activeMessageDiv = null;
+                    }
+                } else if (data.type === "chunk") {
+                    typingIndicator.style.display = 'none';
+                    if (!activeMessageDiv) {
+                        activeMessageDiv = addMessage("", 'msg-agent', null);
+                    }
+                    activeMessageDiv.innerText += data.content;
+                    chatWindow.scrollTop = chatWindow.scrollHeight;
+                } else if (data.type === "error") {
+                    typingIndicator.style.display = 'none';
+                    addMessage(`Connection Failure or Internal Error: ${data.content}`, 'msg-system');
+                    sendBtn.disabled = false;
+                    activeMessageDiv = null;
+                }
+            };
+        }
+
+        connectWebSocket();
+        let activeMessageDiv = null;
+
         async function sendMessage() {
             const prompt = promptInput.value.trim();
             if (!prompt) return;
@@ -593,41 +646,14 @@
             typingIndicator.style.display = 'inline-flex';
             chatWindow.scrollTop = chatWindow.scrollHeight;
 
-            try {
-                // Determine base URL dynamically (works locally and deployed)
-                const baseUrl = window.location.origin;
-
-                const response = await fetch(`${baseUrl}/chat`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ prompt: prompt })
-                });
-
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                activeMessageDiv = null; // Reset for new stream
+                ws.send(JSON.stringify({ prompt: prompt }));
+            } else {
                 typingIndicator.style.display = 'none';
-
-                if (response.ok) {
-                    const data = await response.json();
-
-                    if (data.telemetry) {
-                        appendToGlobalTelemetry(data.telemetry);
-                    }
-
-                    if (data.status === "blocked_ingress") {
-                        addSystemInterception("INGRESS FIREWALL", "Azure AI Content Safety detected a prompt injection or policy violation. The payload was dropped before reaching the LLM context window.", data.telemetry);
-                    } else if (data.status === "blocked_pctl") {
-                        addSystemInterception("PCTL ROOT OF TRUST", "The LLM attempted to execute the 'transfer_funds' tool. The PCTL state machine evaluated the proof (Authentication == False) and HARD BLOCKED the stochastic action.", data.telemetry);
-                    } else {
-                        addMessage(data.response, 'msg-agent', data.telemetry);
-                    }
-                } else {
-                    addMessage(`Error: ${response.statusText}`, 'msg-system');
-                }
-            } catch (error) {
-                typingIndicator.style.display = 'none';
-                addMessage(`Connection Failure: Make sure the FastAPI backend is running!`, 'msg-system');
+                addMessage(`WebSocket not connected! Refreshing connection...`, 'msg-system');
+                sendBtn.disabled = false;
             }
-
-            sendBtn.disabled = false;
         }
 
         function addMessage(text, className, telemetry = null) {
@@ -657,6 +683,7 @@
 
             chatWindow.insertBefore(msgContainer, typingIndicator);
             chatWindow.scrollTop = chatWindow.scrollHeight;
+            return msgDiv;
         }
 
         function createTerminalWidget(telemetryLines) {

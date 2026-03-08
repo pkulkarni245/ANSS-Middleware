@@ -1,0 +1,11 @@
+dtmc
+
+module default_policy
+    
+    // For any tool without a specific policy, default to allow.
+    s : [0..1] init 0;
+
+    [] s=0 -> 1.0 : (s'=1);
+    [] s=1 -> 1.0 : (s'=1);
+
+endmodule

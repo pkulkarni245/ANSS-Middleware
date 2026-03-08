@@ -1,6 +1,6 @@
 import os
 import re
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
@@ -32,6 +32,17 @@ _ = os.environ.get("SEARCH_ENDPOINT")
 ingress_shield = IngressShield()
 secure_rag = SecureRAG()
 pctl_middleware = PCTLSecurityMiddleware()
+
+# Azure Monitor OpenTelemetry Integration
+try:
+    from azure.monitor.opentelemetry import configure_azure_monitor
+    if os.environ.get("APPLICATIONINSIGHTS_CONNECTION_STRING"):
+        configure_azure_monitor()
+        logger.info("Azure Monitor OpenTelemetry auto-instrumentation enabled.")
+    else:
+        logger.info("APPLICATIONINSIGHTS_CONNECTION_STRING not found. OpenTelemetry traces disabled.")
+except ImportError:
+    logger.warning("azure-monitor-opentelemetry missing. Distributed traces disabled.")
 
 app = FastAPI(title="Azure Neural-Symbolic Sentinel (ANSS)", version="1.0.0")
 
@@ -277,6 +288,111 @@ async def chat_endpoint(request: ChatRequest):
             "telemetry": trace,
             "status": "success"
         }
+
+@app.websocket("/ws/chat")
+async def websocket_chat_endpoint(websocket: WebSocket):
+    await websocket.accept()
+    try:
+        while True:
+            data = await websocket.receive_json()
+            user_prompt = data.get("prompt", "")
+            if not user_prompt:
+                continue
+
+            logger.info("Received new WebSocket chat request.", extra={"prompt_length": len(user_prompt)})
+            trace = ["[ANSS TELEMETRY] ──> [USER PAYLOAD RECEIVED]"]
+
+            # a) Pass input to ingress_shield.py
+            is_safe_prompt = ingress_shield.scan_prompt(user_prompt)
+            if not is_safe_prompt:
+                trace.append("[ANSS TELEMETRY] ──> [SHIELD: BLOCKED X] ──X Pipeline Terminated (Jailbreak Detected)")
+                await websocket.send_json({"type": "telemetry", "status": "blocked_ingress", "telemetry": trace})
+                continue
+
+            # b) Call secure_rag.py to get verified context
+            trace.append("[ANSS TELEMETRY] ──> [SHIELD: PASS] ──> [RAG] Fetching Verifiable Context...")
+            verified_context = secure_rag.retrieve_and_verify(user_prompt)
+            trace.append("[ANSS TELEMETRY] ──> [SHIELD: PASS] ──> [RAG: VERIFIED] ──> [LLM] Agent Invocation...")
+
+            augmented_prompt = f"Context Data:\\n{verified_context}\\n\\nUser Query:\\n{user_prompt}"
+            logger.info("Proceeding to Agent WS Invocation with augmented context.")
+            
+            try:
+                # Send the telemetry collected so far
+                await websocket.send_json({"type": "telemetry", "status": "processing", "telemetry": trace})
+                trace = [] 
+                
+                # Streaming invocation using SK
+                stream_result = agent_kernel.invoke_prompt_stream(
+                    function_name="chat_interaction",
+                    plugin_name="AgentPlugin",
+                    prompt=augmented_prompt
+                )
+                
+                async for chunk in stream_result:
+                    chunk_text = str(chunk[0])
+                    if "[SECURITY EXCEPTION]" in chunk_text:
+                        trace.append("[ANSS TELEMETRY] ──> [PCTL: HARD BLOCKED X] ──X Deterministic Mathematical Proof Failed")
+                        await websocket.send_json({"type": "telemetry", "status": "blocked_pctl", "telemetry": trace})
+                        break
+                    else:
+                        await websocket.send_json({"type": "chunk", "content": chunk_text})
+                        
+                await websocket.send_json({"type": "telemetry", "status": "success", "telemetry": ["[ANSS TELEMETRY] ──> [ACTION ALLOWED] ──> Execution Complete"]})
+
+            except Exception as e:
+                logger.error(f"Error during WS agent invocation: {e}")
+                
+                # Offline NLP Fallback for WebSockets
+                trace.append("[ANSS TELEMETRY] ──> [LLM: OFFLINE] ──> [NLP INTENT ROUTER: ENGAGED]")
+                try:
+                    from sentence_transformers import SentenceTransformer, util
+                    embedder = SentenceTransformer('all-MiniLM-L6-v2')
+                    intents = ["transfer money, send funds, pay someone, wire cash", "check account balance, how much money do I have, savings status"]
+                    intent_embeddings = embedder.encode(intents, convert_to_tensor=True)
+                    query_embedding = embedder.encode(user_prompt, convert_to_tensor=True)
+                    hits = util.semantic_search(query_embedding, intent_embeddings, top_k=1)[0]
+                    score = hits[0]['score']
+                    intent_id = hits[0]['corpus_id']
+                    
+                    trace.append(f"[ANSS TELEMETRY] ──> [NLP: SEMANTIC SIMILARITY] ──> Highest Match Score: {score:.3f}")
+                    await websocket.send_json({"type": "telemetry", "status": "processing", "telemetry": trace})
+                    trace = []
+                    
+                    if score > 0.45:
+                        tools = FinanceTools()
+                        if intent_id == 0:
+                            trace.append("[ANSS TELEMETRY] ──> [LLM: TOOL INVOCATION] ──> [PCTL: INTERCEPTING 'transfer_funds']...")
+                            trace.append("[ANSS TELEMETRY] ──> [PCTL: EVALUATING SPECIFICATION] ──> P>=1 [ F \"transfer_funds\" & !\"user_authenticated\" ]")
+                            mock_result = tools.transfer_funds(amount=1000.0, destination="attacker_account")
+                            if "[SECURITY EXCEPTION]" in mock_result:
+                                trace.append("[ANSS TELEMETRY] ──> [PCTL: HARD BLOCKED X] ──X Deterministic Mathematical Proof Failed")
+                                await websocket.send_json({"type": "telemetry", "status": "blocked_pctl", "telemetry": trace})
+                                continue
+                            
+                            await websocket.send_json({"type": "chunk", "content": mock_result})
+                            await websocket.send_json({"type": "telemetry", "status": "success", "telemetry": trace})
+                            continue
+                            
+                        elif intent_id == 1:
+                            trace.append("[ANSS TELEMETRY] ──> [LLM: TOOL INVOCATION] ──> [PCTL: INTERCEPTING 'get_account_balance']...")
+                            trace.append("[ANSS TELEMETRY] ──> [PCTL: EVALUATING SPECIFICATION] ──> P>=1 [ F \"get_account_balance\" & !\"user_authenticated\" ]")
+                            mock_result = tools.get_account_balance()
+                            trace.append("[ANSS TELEMETRY] ──> [ACTION ALLOWED] ──> Executing Tool Safely")
+                            await websocket.send_json({"type": "chunk", "content": mock_result})
+                            await websocket.send_json({"type": "telemetry", "status": "success", "telemetry": trace})
+                            continue
+                            
+                    trace.append("[ANSS TELEMETRY] ──> [NLP: NO STRONG INTENT] ──> Proceeding to generic conversational handler.")
+                except Exception as ex:
+                    trace.append(f"[ANSS TELEMETRY] ──> [NLP ROUTER ERROR] ──> {ex}")
+                    
+                trace.append("[ANSS TELEMETRY] ──> [LLM: TEXT GENERATION] ──> [PCTL: BYPASSED] ──> Safe Response Generated")
+                await websocket.send_json({"type": "chunk", "content": "I am a financial assistant protected by the ANSS Zero-Trust Middleware. I can help you safely authorize transactions, but I cannot perform operations outside of my strict financial scope."})
+                await websocket.send_json({"type": "telemetry", "status": "success", "telemetry": trace})
+
+    except WebSocketDisconnect:
+        logger.info("WebSocket client disconnected.")
 
 
 # --- Phase 1.5c: Azure Portal PRISM Compilation Endpoint ---

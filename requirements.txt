@@ -10,4 +10,4 @@ stormpy
 python-json-logger==2.0.7
 aiofiles==23.2.1
 sentence-transformers==3.0.1
-
+azure-monitor-opentelemetry==1.6.0
