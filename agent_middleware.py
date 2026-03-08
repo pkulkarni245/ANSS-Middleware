@@ -1,4 +1,8 @@
-import stormpy
+try:
+    import stormpy
+except ImportError:
+    stormpy = None
+    
 from typing import Any
 from semantic_kernel.functions.kernel_function import KernelFunction
 from semantic_kernel.functions.kernel_arguments import KernelArguments

@@ -3,10 +3,11 @@ uvicorn==0.29.0
 azure-ai-contentsafety==1.0.0
 azure-search-documents==11.4.0
 azure-keyvault-secrets==4.8.0
-azure-identity==1.15.0
-semantic-kernel==1.1.0
-pydantic==2.7.4
+azure-identity==1.19.0
+semantic-kernel>=1.14.0
+pydantic>=2.7
 stormpy
 python-json-logger==2.0.7
 aiofiles==23.2.1
 sentence-transformers==3.0.1
+

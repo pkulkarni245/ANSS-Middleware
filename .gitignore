@@ -16,6 +16,7 @@ venv.bak/
 *.log
 azure_output.txt
 test_mock.py
+portal_sample.html
 
 # C extensions
 *.so
