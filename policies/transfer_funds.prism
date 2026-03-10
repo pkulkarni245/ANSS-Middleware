@@ -1,3 +1,5 @@
+// REQUIREMENT: user_authenticated == true
+
 dtmc
 
 module transfer_policy

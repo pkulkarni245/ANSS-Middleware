@@ -20223,7 +20223,25 @@ Your sign in used multifactor authentication." id="_weave_e_22">
                                                 id="_weave_e_289">
                                                 <!--_weave_cstart_221--><!--_weave_cend_221--><!--_weave_cstart_222-->
                                                 <div class="fxs-commandBar-target fxs-portal-border fxs-portal-background fxs-portal-svg"
-                                                    id="_weave_e_290"></div><!--_weave_cend_222-->
+                                                    id="_weave_e_290">
+                                                    <div class="fxs-commandbar" role="toolbar"
+                                                        style="display: flex; align-items: center; padding-left: 12px; height: 100%;">
+                                                        <button class="fui-Button" onclick="openBlade()"
+                                                            style="display: flex; align-items: center; background: transparent; border: none; color: #0078d4; cursor: pointer; font-size: 13px; font-weight: 600;">
+                                                            <svg style="width:16px; height:16px; margin-right:8px; fill: #8a2da5;"
+                                                                viewBox="0 0 16 16">
+                                                                <path
+                                                                    d="M8 0L0 3v5.5C0 12.5 4 16 8 16s8-3.5 8-7.5V3L8 0zm6.5 8.5c0 3.3-3.2 6.2-6.5 6.2S1.5 11.8 1.5 8.5V4l6.5-2.4L14.5 4v4.5z" />
+                                                            </svg>
+                                                            Secure with ANSS Sentinel
+                                                        </button>
+                                                        <div
+                                                            style="width: 1px; height: 20px; background: #edebe9; margin: 0 12px;">
+                                                        </div>
+                                                        <span style="font-size: 12px; color: #605e5c;">Showing 4
+                                                            resources</span>
+                                                    </div>
+                                                </div><!--_weave_cend_222-->
                                             </div>
                                             <div class="fxs-blade-dialoghost az-noprint">
                                                 <div class="fxs-blade-dialog"></div>
@@ -20239,8 +20257,77 @@ Your sign in used multifactor authentication." id="_weave_e_22">
                                                 </div>
                                                 <div class="fxs-blade-content fxs-vivaresize fxs-bladesize-menu"
                                                     id="_weave_e_294"><!--_weave_cstart_225-->
+                                                    <div class="anss-resource-grid" style="padding: 24px;">
+                                                        <table
+                                                            style="width: 100%; border-collapse: collapse; font-size: 13px; color: #323130;">
+                                                            <thead>
+                                                                <tr
+                                                                    style="text-align: left; border-bottom: 1px solid #edebe9; color: #605e5c;">
+                                                                    <th style="padding: 8px;">Name</th>
+                                                                    <th style="padding: 8px;">Type</th>
+                                                                    <th style="padding: 8px;">Resource group</th>
+                                                                    <th style="padding: 8px;">Location</th>
+                                                                    <th style="padding: 8px;">Status</th>
+                                                                </tr>
+                                                            </thead>
+                                                            <tbody>
+                                                                <tr style="border-bottom: 1px solid #f3f2f1;">
+                                                                    <td
+                                                                        style="padding: 8px; color: #0078d4; font-weight: 600;">
+                                                                        anss-middleware-svc123</td>
+                                                                    <td style="padding: 8px;">App Service</td>
+                                                                    <td style="padding: 8px;">ANSS-Prototype-RG</td>
+                                                                    <td style="padding: 8px;">East US</td>
+                                                                    <td style="padding: 8px;"><span
+                                                                            style="color: #107c10;">● Running</span>
+                                                                    </td>
+                                                                </tr>
+                                                                <tr style="border-bottom: 1px solid #f3f2f1;">
+                                                                    <td
+                                                                        style="padding: 8px; color: #0078d4; font-weight: 600;">
+                                                                        anss-vault-unique123</td>
+                                                                    <td style="padding: 8px;">Key vault</td>
+                                                                    <td style="padding: 8px;">ANSS-Prototype-RG</td>
+                                                                    <td style="padding: 8px;">East US</td>
+                                                                    <td style="padding: 8px;"><span
+                                                                            style="color: #107c10;">● Active</span></td>
+                                                                </tr>
+                                                                <tr style="border-bottom: 1px solid #f3f2f1;">
+                                                                    <td
+                                                                        style="padding: 8px; color: #0078d4; font-weight: 600;">
+                                                                        anss-openai-unique123</td>
+                                                                    <td style="padding: 8px;">Azure OpenAI</td>
+                                                                    <td style="padding: 8px;">ANSS-Prototype-RG</td>
+                                                                    <td style="padding: 8px;">East US</td>
+                                                                    <td style="padding: 8px;"><span
+                                                                            style="color: #107c10;">● Protected</span>
+                                                                    </td>
+                                                                </tr>
+                                                                <tr style="border-bottom: 1px solid #f3f2f1;">
+                                                                    <td
+                                                                        style="padding: 8px; color: #0078d4; font-weight: 600;">
+                                                                        anss-dtmc-validator-func</td>
+                                                                    <td style="padding: 8px;">Function App</td>
+                                                                    <td style="padding: 8px;">ANSS-Prototype-RG</td>
+                                                                    <td style="padding: 8px;">East US</td>
+                                                                    <td style="padding: 8px;"><span
+                                                                            style="color: #107c10;">● Deployed</span>
+                                                                    </td>
+                                                                </tr>
+                                                            </tbody>
+                                                        </table>
+                                                        <div
+                                                            style="margin-top: 24px; padding: 16px; background: #fff4ce; border: 1px solid #ffb900; border-radius: 2px;">
+                                                            <h4 style="margin: 0 0 8px 0; font-size: 13px;">⚠️ Security
+                                                                Action Required</h4>
+                                                            <p style="margin: 0; font-size: 12px;">One or more AI agents
+                                                                are operating without Formal Verification (PCTL). Use
+                                                                the <strong>Secure with ANSS Sentinel</strong> tool in
+                                                                the command bar to define mathematical guardrails.</p>
+                                                        </div>
+                                                    </div>
                                                     <div
-                                                        class="fxs-blade-stacklayout fxs-stacklayout fxs-stacklayout-vertical">
+                                                        class="fxs-blade-stacklayout fxs-stacklayout fxs-stacklayout-vertical fxs-display-none">
                                                         <div class="fxs-lens fxs-stacklayout-child fxs-lens-fit">
                                                             <div class="fxs-lens-title-container">
                                                                 <div class="fxs-lens-title weave-display-none1">

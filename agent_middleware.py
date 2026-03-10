@@ -86,10 +86,22 @@ class PCTLSecurityMiddleware:
             # program = stormpy.parse_prism_program(prism_model)
             pass
             
-        # For Hackathon/Windows cross-compatibility (where stormpy is mocked),
-        # we evaluate the abstract state intent retrieved from the PRISM model
-        if tool_name == "transfer_funds":
-            # Policy requirement: user_authenticated must be true
+        # PROTOTYPE ENHANCEMENT: Parse the PRISM file for requirement tags
+        # This demonstrates how external files control logic.
+        # Format in .prism: "// REQUIREMENT: {property} == {value}"
+        import re
+        requirements = re.findall(r"//\s*REQUIREMENT:\s*(\w+)\s*==\s*(\w+)", prism_model)
+        for prop, val in requirements:
+            # Convert string value to boolean/integer if possible
+            if val.lower() == "true": val = True
+            elif val.lower() == "false": val = False
+            
+            if state.get(prop) != val:
+                logger.warning(f"Deterministic Violation: {prop} must be {val} as per {policy_path}")
+                return False
+
+        # Legacy hardcoded fallback for specific hackathon flows
+        if tool_name == "transfer_funds" and not requirements:
             if not state.get("user_authenticated", False):
                 return False 
 
