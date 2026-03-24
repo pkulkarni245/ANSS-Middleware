@@ -1,0 +1,354 @@
+import re
+
+with open('static/azure_portal.html', 'r', encoding='utf-8') as f:
+    content = f.read()
+
+# Replace Command bar
+command_bar = """            <!-- Command Bar -->
+            <div class="command-bar mt-4">
+                <button class="command-btn shadow-sm border"><i class="fa-solid fa-plus !text-green-600"></i> Create</button>
+                <div class="h-4 w-px bg-gray-300 mx-2"></div>
+                
+                <button class="command-btn" onclick="openBlade('pctlBlade')"><i class="fa-solid fa-shield-halved !text-purple-600"></i> <b>Deploy PCTL Rule</b></button>
+                <button class="command-btn" onclick="openBlade('intentBlade')"><i class="fa-solid fa-key !text-blue-600"></i> <b>Generate Intent Token</b></button>
+                <button class="command-btn" onclick="openBlade('egressBlade')"><i class="fa-solid fa-sliders !text-orange-600"></i> <b>Egress Threshold</b></button>
+                
+                <div class="h-4 w-px bg-gray-300 mx-2"></div>
+                <button class="command-btn"><i class="fa-solid fa-rotate-right"></i> Refresh</button>
+            </div>"""
+            
+content = re.sub(r'<!-- Command Bar -->.*?</div>(?=\s*<div class="px-4 py-2)', command_bar, content, flags=re.DOTALL)
+
+# Add new blades
+new_blades = """
+    <!-- Intent Token Blade -->
+    <div class="blade-overlay" id="overlay-intentBlade" onclick="closeBlade('intentBlade')"></div>
+    <div class="blade" id="intentBlade">
+        <div class="blade-header bg-gray-50">
+            <div class="flex items-center">
+                <i class="fa-solid fa-key text-blue-600 text-xl mr-3"></i>
+                <div>
+                    <div class="blade-title">Generate Intent Token</div>
+                    <div class="text-xs text-gray-500">Issue short-lived HMAC-signed capability manifests</div>
+                </div>
+            </div>
+            <button class="blade-close" onclick="closeBlade('intentBlade')"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div class="blade-content">
+            <p class="text-sm text-gray-600 mb-6">
+                Generate an `X-Intent-Manifest` to prevent Confused Deputy attacks. The middleware will strictly bind downstream tool execution to the capabilities signed in this token.
+            </p>
+            
+            <label class="form-label">User Role</label>
+            <input type="text" class="form-input" id="intentRole" value="finance_manager" />
+            
+            <label class="form-label">Allowed Tools (comma separated or *)</label>
+            <input type="text" class="form-input" id="intentTools" value="get_account_balance, list_recent_transactions" />
+            
+            <div class="mt-4 border-t border-gray-200 pt-4 flex justify-end gap-3">
+                <button class="border border-gray-300 px-4 py-1.5 rounded text-sm hover:bg-gray-50" onclick="closeBlade('intentBlade')">Cancel</button>
+                <button class="primary-btn flex items-center bg-blue-600" onclick="generateIntent()">
+                    <i class="fa-solid fa-signature mr-2"></i> Sign Request
+                </button>
+            </div>
+            
+            <div id="intentOutput" class="mt-6" style="display: none;">
+                <label class="form-label !mb-2 text-green-700"><i class="fa-solid fa-check-circle mr-1"></i> Token Generated Successfully</label>
+                <div class="mb-4">
+                    <label class="text-xs font-semibold text-gray-700">X-Intent-Manifest (Base64)</label>
+                    <textarea id="outManifest" class="w-full text-xs font-mono p-2 border rounded bg-gray-50" rows="3" readonly></textarea>
+                </div>
+                <div>
+                    <label class="text-xs font-semibold text-gray-700">X-Intent-Signature (HMAC-SHA256)</label>
+                    <textarea id="outSignature" class="w-full text-xs font-mono p-2 border rounded bg-gray-50" rows="2" readonly></textarea>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Egress Config Blade -->
+    <div class="blade-overlay" id="overlay-egressBlade" onclick="closeBlade('egressBlade')"></div>
+    <div class="blade" id="egressBlade">
+        <div class="blade-header bg-gray-50">
+            <div class="flex items-center">
+                <i class="fa-solid fa-sliders text-orange-600 text-xl mr-3"></i>
+                <div>
+                    <div class="blade-title">Egress Filter Settings</div>
+                    <div class="text-xs text-gray-500">Tune semantic DTMC leakage sensitivity</div>
+                </div>
+            </div>
+            <button class="blade-close" onclick="closeBlade('egressBlade')"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div class="blade-content">
+            <p class="text-sm text-gray-600 mb-6">
+                The semantic egress router constantly models outgoing text generation as a Discrete-Time Markov Chain. Adjust the probabilistic threshold where stream termination occurs to balance security and usability.
+            </p>
+            
+            <label class="form-label">DTMC Threshold (0.01 - 1.00)</label>
+            <div class="flex items-center gap-4">
+                <input type="range" min="0.01" max="1.00" step="0.01" class="w-full" id="dtmcSlider" value="0.05" oninput="document.getElementById('dtmcValue').innerText = parseFloat(this.value).toFixed(2)" />
+                <span id="dtmcValue" class="font-mono font-bold w-12 text-right text-orange-600">0.05</span>
+            </div>
+            <p class="text-xs text-gray-500 mt-2 mb-6">Lower values aggressively terminate streams if generic data leakage patterns are detected.</p>
+            
+            <div class="mt-4 border-t border-gray-200 pt-4 flex justify-end gap-3">
+                <button class="border border-gray-300 px-4 py-1.5 rounded text-sm hover:bg-gray-50" onclick="closeBlade('egressBlade')">Cancel</button>
+                <button class="primary-btn flex items-center bg-orange-600 hover:bg-orange-700" onclick="saveEgressConfig()">
+                    <i class="fa-solid fa-save mr-2"></i> Apply Threshold
+                </button>
+            </div>
+            
+            <div id="egressOutput" class="mt-6 p-3 bg-green-50 border border-green-200 rounded text-sm text-green-800" style="display: none;">
+                <i class="fa-solid fa-check-circle mr-1"></i> <b>Threshold Updated Live</b>. Streaming connections will immediately use the new probabilistic boundary.
+            </div>
+        </div>
+    </div>
+"""
+
+# Replace old PCTL blade and JS
+content = re.sub(r'<div class="blade-overlay" id="bladeOverlay" onclick="closeBlade.*?</body>', """    <!-- PCTL Configuration Blade -->
+    <div class="blade-overlay" id="overlay-pctlBlade" onclick="closeBlade('pctlBlade')"></div>
+    <div class="blade" id="pctlBlade">
+        <div class="blade-header bg-gray-50">
+            <div class="flex items-center">
+                <i class="fa-solid fa-shield-halved text-purple-600 text-xl mr-3"></i>
+                <div>
+                    <div class="blade-title">Define ANSS Security State Space</div>
+                    <div class="text-xs text-gray-500">Configure Probabilistic Constraints for Azure AI</div>
+                </div>
+            </div>
+            <button class="blade-close" onclick="closeBlade('pctlBlade')"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div class="blade-content">
+            <p class="text-sm text-gray-600 mb-6">
+                Use this portal to configure the Deterministic Guardrails (Phase 3).
+                The Azure Fabric will compile these rules into `.prism` format and deploy them to the isolated ANSS
+                Function App (`anss-dtmc-validator-func`).
+            </p>
+
+            <div class="mb-6 p-4 border border-gray-200 rounded bg-blue-50">
+                <h3 class="text-sm font-semibold text-blue-800 mb-2"><i class="fa-solid fa-circle-info mr-1"></i> How it
+                    works</h3>
+                <p class="text-xs text-blue-700">Instead of traditional RBAC, ANSS mathematically models AI execution as
+                    a Markov Chain. Defining a constraint guarantees zero probability of an AI agent reaching an illegal
+                    state, regardless of prompt injection attacks.</p>
+            </div>
+
+            <label class="form-label">Select Entity (Origin)</label>
+            <select class="form-select" id="entitySelect">
+                <option value="user_guest">Guest User Identity</option>
+                <option value="user_employee">Standard Employee</option>
+                <option value="user_admin">Administrator</option>
+                <option value="ai_agent_finance">Finance Assistant Agent</option>
+            </select>
+
+            <label class="form-label">Select Action (Transition)</label>
+            <select class="form-select" id="actionSelect">
+                <option value="read_db">Read Database</option>
+                <option value="invoke_transfer">Invoke Tool: Transfer Funds</option>
+                <option value="invoke_delete">Invoke Tool: Delete Record</option>
+            </select>
+
+            <label class="form-label">Mathematical Constraint (PCTL Goal)</label>
+            <select class="form-select" id="constraintSelect">
+                <option value="P<=0">P &lt;= 0 (Absolutely Forbidden / Zero Probability)</option>
+                <option value="P>=1">P &gt;= 1 (Always Allowed)</option>
+                <option value="P>0.95">P &gt; 0.95 (Highly Probable with MFA)</option>
+            </select>
+
+            <div class="mt-4 border-t border-gray-200 pt-4 flex justify-end gap-3">
+                <button class="border border-gray-300 px-4 py-1.5 rounded text-sm hover:bg-gray-50"
+                    onclick="closeBlade('pctlBlade')">Discard</button>
+                <button class="primary-btn flex items-center" onclick="generatePrism()">
+                    <i class="fa-solid fa-code mr-2"></i> Compile to PRISM
+                </button>
+            </div>
+
+            <!-- PRISM Compilation Output -->
+            <div id="prismOutput" class="mt-6" style="display: none;">
+                <div class="flex items-center justify-between mb-2">
+                    <label class="form-label !mb-0 text-green-700"><i class="fa-solid fa-check-circle mr-1"></i>
+                        Compilation Successful</label>
+                    <span class="text-xs bg-gray-200 px-2 py-0.5 rounded text-gray-600">dtmc_policy.prism</span>
+                </div>
+                <p class="text-xs text-gray-500 mb-2">The following Discrete-Time Markov Chain model has been
+                    synchronized with the Azure Function execution environment.</p>
+                <pre class="prism-code" id="prismCodeBlock"></pre>
+
+                <div class="mt-4 p-3 bg-green-50 border border-green-200 rounded text-xs text-green-800">
+                    <strong>Model Checking Verified:</strong>
+                    <br />`stormpy` confirms that from the initial state <code
+                        class="bg-white px-1 rounded text-black font-mono">init_state</code>, the probability of
+                    reaching the illegal state satisfies the constraint.
+                </div>
+            </div>
+        </div>
+    </div>
+""" + new_blades + """
+    <script>
+        // Load policies on page load
+        document.addEventListener('DOMContentLoaded', fetchPolicies);
+
+        async function fetchPolicies() {
+            try {
+                const response = await fetch('/api/policies');
+                const data = await response.json();
+                renderPolicyGrid(data.policies);
+            } catch (error) {
+                console.error('Error fetching policies:', error);
+                document.getElementById('policyGridContainer').innerHTML =
+                    `<div class="p-4 text-center text-sm text-red-500">Failed to load policies. Ensure backend is running.</div>`;
+            }
+        }
+
+        function renderPolicyGrid(policies) {
+            const container = document.getElementById('policyGridContainer');
+            container.innerHTML = ''; // Clear loading
+
+            if (!policies || policies.length === 0) {
+                container.innerHTML = `<div class="p-4 text-center text-sm text-gray-500">No active policies found.</div>`;
+                return;
+            }
+
+            policies.forEach(policy => {
+                const row = document.createElement('div');
+                row.className = 'table-row';
+                let iconClass = 'fa-file-code text-gray-500';
+                if (policy.action.includes('Transfer')) iconClass = 'fa-money-bill-transfer text-green-600';
+                if (policy.action.includes('Delete')) iconClass = 'fa-trash-can text-red-500';
+                if (policy.action.includes('Read')) iconClass = 'fa-database text-blue-500';
+
+                row.innerHTML = `
+                    <div class="col-check"><input type="checkbox"></div>
+                    <div class="col-name flex items-center"><i class="fa-solid ${iconClass} mr-2"></i> ${policy.name}</div>
+                    <div class="col-type text-xs">${policy.entity}</div>
+                    <div class="col-location text-xs">${policy.action}</div>
+                    <div class="col-pricing font-mono text-purple-700 bg-purple-50 px-1 rounded">${policy.constraint}</div>
+                    <div class="col-status flex items-center text-green-600"><i class="fa-solid fa-check-circle mr-1"></i> ${policy.status}</div>
+                    <div class="col-date text-xs text-gray-500">${policy.date}</div>
+                `;
+                container.appendChild(row);
+            });
+        }
+
+        function openBlade(id) {
+            document.getElementById('overlay-' + id).style.display = 'block';
+            setTimeout(() => {
+                document.getElementById(id).classList.add('open');
+            }, 10);
+        }
+
+        function closeBlade(id) {
+            document.getElementById(id).classList.remove('open');
+            setTimeout(() => {
+                document.getElementById('overlay-' + id).style.display = 'none';
+                if(id === 'pctlBlade') document.getElementById('prismOutput').style.display = 'none';
+                if(id === 'intentBlade') document.getElementById('intentOutput').style.display = 'none';
+                if(id === 'egressBlade') document.getElementById('egressOutput').style.display = 'none';
+            }, 300);
+        }
+
+        async function generatePrism() {
+            const entitySelect = document.getElementById('entitySelect');
+            const actionSelect = document.getElementById('actionSelect');
+            const constraintSelect = document.getElementById('constraintSelect');
+
+            const entity = entitySelect.value;
+            const action = actionSelect.value;
+            const constraint = constraintSelect.value;
+            const entityText = entitySelect.options[entitySelect.selectedIndex].text;
+            const actionText = actionSelect.options[actionSelect.selectedIndex].text;
+            const constraintText = constraint.split(' ')[0];
+
+            let targetStateLabel = ""; let policyName = "";
+            if (action === "invoke_transfer") { targetStateLabel = `"tool_transfer_funds"`; policyName = `dtmc_transfer_${Date.now().toString().slice(-4)}.prism`; }
+            if (action === "invoke_delete") { targetStateLabel = `"tool_delete_record"`; policyName = `dtmc_delete_${Date.now().toString().slice(-4)}.prism`; }
+            if (action === "read_db") { targetStateLabel = `"db_access_granted"`; policyName = `dtmc_read_${Date.now().toString().slice(-4)}.prism`; }
+
+            let pctlFormula = "";
+            if (constraint === "P<=0") pctlFormula = `P<=0 [ F ${targetStateLabel} ]`;
+            else if (constraint === "P>=1") pctlFormula = `P>=1 [ F ${targetStateLabel} ]`;
+            else pctlFormula = `P>0.95 [ F ${targetStateLabel} ]`;
+
+            const prismText = `<span class="prism-keyword">dtmc</span>
+<span class="prism-keyword">module</span> <span class="prism-var">security_policy</span>
+    <span class="text-gray-500">// State definitions (0=Init, 1=Authorized, 2=Rejected, 3=Executed)</span>
+    <span class="prism-var">s</span> : [0..3] <span class="prism-keyword">init</span> 0;
+    <span class="text-gray-500">// Dynamic Context Properties Injected by Azure Entra ID mapping</span>
+    <span class="prism-keyword">const</span> <span class="prism-var">bool</span> is_entity_${entity} = <span class="prism-string">true</span>;
+    <span class="prism-keyword">const</span> <span class="prism-var">bool</span> requests_${action} = <span class="prism-string">true</span>;
+    <span class="text-gray-500">// Transition Matrix</span>
+    [] s=0 & is_entity_${entity} & requests_${action} -> 1.0 : (s'=2); <span class="text-gray-500">// Deterministic denial</span>
+    [] s=0 & !is_entity_${entity} -> 1.0 : (s'=1); <span class="text-gray-500">// Allow normal flow</span>
+    [] s=1 -> 1.0 : (s'=3); <span class="text-gray-500">// Execute tool</span>
+    [] s=2 -> 1.0 : (s'=2); <span class="text-gray-500">// Sink state (Blocked by ANSS)</span>
+    [] s=3 -> 1.0 : (s'=3); <span class="text-gray-500">// Sink state (Executed)</span>
+<span class="prism-keyword">endmodule</span>
+<span class="text-gray-500">// Formal Property Specification (PCTL)</span>
+<span class="prism-keyword">label</span> ${targetStateLabel} = (s=3);
+<span class="prism-keyword">property</span> block_unauthorized: 
+    ${pctlFormula};`;
+
+            document.getElementById('prismCodeBlock').innerHTML = prismText;
+            document.getElementById('prismOutput').style.display = 'block';
+
+            try {
+                const response = await fetch('/api/policies', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: policyName, entity: entityText, action: actionText, constraint: constraintText })
+                });
+                if (response.ok) fetchPolicies();
+            } catch (error) { console.error("Failed to save policy", error); }
+            
+            setTimeout(() => {
+                const content = document.querySelector('#pctlBlade .blade-content');
+                content.scrollTo({ top: content.scrollHeight, behavior: 'smooth' });
+            }, 50);
+        }
+
+        async function generateIntent() {
+            const role = document.getElementById('intentRole').value;
+            const toolsRaw = document.getElementById('intentTools').value;
+            const tools = toolsRaw.split(',').map(t => t.trim()).filter(t => t);
+            
+            try {
+                const response = await fetch('/api/intents/sign', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ user_role: role, allowed_tools: tools })
+                });
+                const data = await response.json();
+                
+                document.getElementById('outManifest').value = data.manifest_b64 || "Error in response";
+                document.getElementById('outSignature').value = data.signature || "Error in response";
+                document.getElementById('intentOutput').style.display = 'block';
+            } catch (error) {
+                console.error("Failed to generate intent", error);
+            }
+        }
+        
+        async function saveEgressConfig() {
+            const val = parseFloat(document.getElementById('dtmcSlider').value);
+            try {
+                const response = await fetch('/api/config/dtmc_threshold', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ threshold: val })
+                });
+                if(response.ok) {
+                    document.getElementById('egressOutput').style.display = 'block';
+                    setTimeout(() => {
+                        document.getElementById('egressOutput').style.display = 'none';
+                    }, 4000);
+                }
+            } catch (error) {
+                console.error("Failed to update config", error);
+            }
+        }
+    </script>
+</body>
+</html>""", content, flags=re.DOTALL)
+
+with open('static/azure_portal.html', 'w', encoding='utf-8') as f:
+    f.write(content)

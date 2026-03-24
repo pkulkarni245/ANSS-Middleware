@@ -25979,6 +25979,224 @@ Your sign in used multifactor authentication." id="_weave_e_22">
             color: #323130;
         }
 
+        /* -------------------------------------
+           ANSS Layout Hotfixes for Azure Mockup
+           ------------------------------------- */
+        html,
+        body {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            width: 100%;
+            overflow-x: hidden;
+            background-color: #faf9f8;
+        }
+
+        .fxs-ext-outer-container {
+            display: flex;
+            flex-direction: column;
+            width: 100%;
+            height: 100vh;
+        }
+
+        /* Top Navigation Bar Fixes */
+        .fxs-topbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 16px;
+            background-color: #0078d4;
+            color: white;
+            height: 48px;
+            flex-shrink: 0;
+            width: 100%;
+            box-sizing: border-box;
+        }
+
+        .fxs-topbar .fxs-search-box {
+            flex-grow: 1;
+            max-width: 600px;
+            margin: 0 24px;
+        }
+
+        .fxs-topbar input {
+            width: 100%;
+            padding: 6px 16px 6px 36px;
+            border-radius: 4px;
+            border: none;
+            background-color: rgba(255, 255, 255, 0.85);
+        }
+
+        /* Body Layout Fixes */
+        .fxs-app-wrapper {
+            display: flex;
+            flex-grow: 1;
+            width: 100%;
+            height: calc(100vh - 48px);
+            overflow: hidden;
+        }
+
+        .fxs-workspace {
+            display: flex;
+            flex-direction: column;
+            flex-grow: 1;
+            padding: 24px 32px;
+            background-color: #faf9f8;
+            overflow-y: auto;
+        }
+
+        /* Breadcrumbs Fixes */
+        ol.fxs-breadcrumbs {
+            list-style: none;
+            padding: 0;
+            margin: 0 0 16px 0;
+            display: flex;
+            align-items: center;
+            font-size: 14px;
+        }
+
+        ol.fxs-breadcrumbs li {
+            display: flex;
+            align-items: center;
+        }
+
+        ol.fxs-breadcrumbs li a {
+            color: #0078d4;
+            text-decoration: none;
+        }
+
+        ol.fxs-breadcrumbs li a:hover {
+            text-decoration: underline;
+        }
+
+        ol.fxs-breadcrumbs li:not(:last-child)::after {
+            content: ">";
+            margin: 0 8px;
+            color: #605e5c;
+            font-size: 12px;
+        }
+
+        /* Resource Grid & Command Bar Fixes */
+        .fxs-command-bar {
+            display: flex;
+            align-items: center;
+            border-bottom: 1px solid #edebe9;
+            padding-bottom: 12px;
+            margin-bottom: 16px;
+            width: 100%;
+        }
+
+        .fxs-command-btn {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: none;
+            border: none;
+            color: #0078d4;
+            font-weight: 600;
+            font-size: 14px;
+            cursor: pointer;
+            padding: 8px 12px;
+            border-radius: 4px;
+        }
+
+        .fxs-command-btn:hover {
+            background-color: #eff6fc;
+        }
+
+        .fxs-resource-tracker {
+            margin-left: auto;
+            color: #605e5c;
+            font-size: 12px;
+        }
+
+        .fxs-grid-container {
+            width: 100%;
+            max-width: 1200px;
+            background: white;
+            border: 1px solid #edebe9;
+            border-radius: 2px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+        }
+
+        .fxs-grid-header,
+        .fxs-grid-row {
+            display: grid;
+            grid-template-columns: 2fr 2fr 2fr;
+            padding: 12px 24px;
+            border-bottom: 1px solid #edebe9;
+            align-items: center;
+        }
+
+        .fxs-grid-header {
+            font-weight: 600;
+            color: #323130;
+            font-size: 14px;
+            background-color: #f3f2f1;
+        }
+
+        .fxs-grid-row {
+            font-size: 13px;
+            color: #323130;
+        }
+
+        .fxs-grid-row a {
+            color: #0078d4;
+            text-decoration: none;
+            font-weight: 600;
+        }
+
+        .fxs-grid-row a:hover {
+            text-decoration: underline;
+        }
+
+        /* Clean up Floating Artifacts */
+        .fxc-image,
+        .fxs-image,
+        div[title="Notifications"] {
+            display: inline-block;
+        }
+
+        .fxs-hero-section {
+            display: flex;
+            align-items: center;
+            margin-bottom: 24px;
+            gap: 16px;
+        }
+
+        .fxs-hero-section h1 {
+            font-size: 24px;
+            font-weight: 600;
+            margin: 0;
+            color: #323130;
+        }
+
+        /* Alert Box Overhaul */
+        .anss-alert-box {
+            background-color: #fff4ce;
+            border-left: 4px solid #f2c811;
+            padding: 16px;
+            margin-top: 32px;
+            max-width: 600px;
+            border-radius: 2px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        }
+
+        .anss-alert-box h4 {
+            margin: 0 0 8px 0;
+            color: #323130;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .anss-alert-box p {
+            margin: 0;
+            font-size: 13px;
+            color: #323130;
+            line-height: 1.5;
+        }
+
         .form-label {
             display: block;
             font-size: 13px;

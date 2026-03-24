@@ -416,6 +416,9 @@
             <div class="glass-panel header">
                 <h1>ANSS Zero-Trust</h1>
                 <p>Azure Neural-Symbolic Sentinel: Deterministic AI Security Middleware.</p>
+                <a href="/" target="_blank" style="display: inline-block; margin-top: 10px; text-decoration: none; background: rgba(59, 130, 246, 0.2); border: 1px solid rgba(59, 130, 246, 0.5); padding: 5px 10px; border-radius: 5px; color: #60a5fa; font-size: 0.8rem; font-weight: bold; cursor: pointer;">
+                    <i class="fa-solid fa-gear"></i> Open CISO Dashboard (Change Rules)
+                </a>
             </div>
 
             <div class="glass-panel guide-box">
@@ -480,10 +483,15 @@
                 </div>
             </div>
 
-            <div class="input-area">
-                <input type="text" id="prompt-input" class="prompt-input"
-                    placeholder="Type a prompt to observe the pipeline interception..." autocomplete="off">
-                <button class="send-btn" id="send-btn" onclick="sendMessage()">Send Payload</button>
+            <div class="input-area" style="flex-direction: column; gap: 0.5rem;">
+                <div style="display: flex; gap: 1rem;">
+                    <input type="text" id="intent-manifest" class="prompt-input" style="font-size: 0.8rem; padding: 0.5rem;" placeholder="Optional: X-Intent-Manifest (JWT/Base64)" autocomplete="off">
+                    <input type="text" id="intent-signature" class="prompt-input" style="font-size: 0.8rem; padding: 0.5rem;" placeholder="Optional: X-Intent-Signature (HMAC-SHA256)" autocomplete="off">
+                </div>
+                <div style="display: flex; gap: 1rem;">
+                    <input type="text" id="prompt-input" class="prompt-input" placeholder="Type a prompt to observe the pipeline interception..." autocomplete="off">
+                    <button class="send-btn" id="send-btn" onclick="sendMessage()">Send Payload</button>
+                </div>
             </div>
         </div>
     </div>
@@ -608,6 +616,16 @@
                         addSystemInterception("PCTL ROOT OF TRUST", "The LLM attempted to execute a stochastic tool. The PCTL state machine evaluated the formal proof and HARD BLOCKED the action.", data.telemetry);
                         sendBtn.disabled = false;
                         activeMessageDiv = null;
+                    } else if (data.status === "blocked_intent") {
+                        typingIndicator.style.display = 'none';
+                        addSystemInterception("HMAC INTENT GATE", "The requested action falls outside the cryptographically signed Intent Manifest. Operation explicitly denied.", data.telemetry);
+                        sendBtn.disabled = false;
+                        activeMessageDiv = null;
+                    } else if (data.status === "blocked_egress") {
+                        typingIndicator.style.display = 'none';
+                        addSystemInterception("DTMC EGRESS FILTER", "A simulated data leak probability threshold was exceeded during output streaming. Connection aggressively terminated.", data.telemetry);
+                        sendBtn.disabled = false;
+                        activeMessageDiv = null;
                     } else if (data.status === "success") {
                         // Stream finished successfully
                         sendBtn.disabled = false;
@@ -634,6 +652,8 @@
 
         async function sendMessage() {
             const prompt = promptInput.value.trim();
+            const manifest = document.getElementById('intent-manifest').value.trim();
+            const signature = document.getElementById('intent-signature').value.trim();
             if (!prompt) return;
 
             // Add user message to UI
@@ -648,7 +668,10 @@
 
             if (ws && ws.readyState === WebSocket.OPEN) {
                 activeMessageDiv = null; // Reset for new stream
-                ws.send(JSON.stringify({ prompt: prompt }));
+                const payload = { prompt: prompt };
+                if (manifest) payload.intent_manifest = manifest;
+                if (signature) payload.intent_signature = signature;
+                ws.send(JSON.stringify(payload));
             } else {
                 typingIndicator.style.display = 'none';
                 addMessage(`WebSocket not connected! Refreshing connection...`, 'msg-system');

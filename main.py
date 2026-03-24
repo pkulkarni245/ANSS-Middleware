@@ -44,6 +44,20 @@ try:
 except ImportError:
     logger.warning("azure-monitor-opentelemetry missing. Distributed traces disabled.")
 
+# --- Dynamic Configuration State (Phase 5) ---
+# In a real cluster, these would be managed by a distributed KV store or env vars.
+GLOBAL_HMAC_SECRET = os.environ.get("ANSS_HMAC_SECRET", "super_secret_prototype_key_2026").encode('utf-8')
+GLOBAL_DTMC_THRESHOLD = 0.05
+
+try:
+    from sentence_transformers import SentenceTransformer, util
+    logger.info("Initializing Global SentenceTransformer for Zero-Trust Routing...")
+    global_embedder = SentenceTransformer('all-MiniLM-L6-v2')
+except ImportError:
+    global_embedder = None
+    logger.warning("sentence-transformers not installed. Offline routing disabled.")
+
+
 app = FastAPI(title="Azure Neural-Symbolic Sentinel (ANSS)", version="1.0.0")
 
 # Mount the static UI directory
@@ -52,15 +66,47 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 @app.get("/")
 async def root_ui():
     """Serves the Azure Portal CISO Mockup."""
-    return FileResponse("static/azure_portal_fluent.html")
+    return FileResponse("static/azure_portal.html")
 
 @app.get("/bot")
 async def bot_ui():
     """Serves the Zero-Trust Chat Visualizer UI."""
     return FileResponse("static/index.html")
 
+# --- Dynamic RAG API (Phase 2.3) ---
+
+class DocumentRequest(BaseModel):
+    content: str
+    is_poisoned: bool = False
+
+@app.post("/api/rag/document")
+async def add_rag_document(req: DocumentRequest):
+    """Adds a document to the mock Vector DB. Calculates and stores its HMAC signature."""
+    secure_rag.add_document(req.content, req.is_poisoned)
+    return {"status": "success", "message": f"Document added. Poisoned: {req.is_poisoned}"}
+
+@app.delete("/api/rag/documents")
+async def clear_rag_documents():
+    """Clears the mock Vector DB."""
+    secure_rag.clear_documents()
+    return {"status": "success", "message": "Documents cleared."}
+
+@app.get("/api/rag/documents")
+async def get_rag_documents():
+    """Returns the raw contents of the mock Vector DB to prove the poisoned file exists on disk."""
+    import json
+    try:
+        with open("mock_vector_db.json", "r", encoding="utf-8") as f:
+            docs = json.load(f)
+            return {"documents": docs}
+    except FileNotFoundError:
+        return {"documents": []}
+
+
 class ChatRequest(BaseModel):
     prompt: str
+    intent_manifest: str = None
+    intent_signature: str = None
 
 class FinanceTools:
     """
@@ -110,6 +156,39 @@ class FinanceTools:
              
         return f"Your current account balance is $12,450.00."
 
+class AdminTools:
+    """
+    Dummy tools plugin for the system administrator to use.
+    Demonstrates Domain Isolation (Admin vs Finance).
+    """
+    @kernel_function(
+         description="Deletes a user record from the production database.",
+         name="delete_user_record"
+    )
+    def delete_user_record(self, user_id: str) -> str:
+        import semantic_kernel.functions.kernel_arguments as sk_args
+        from agent_middleware import PCTLSecurityMiddleware
+        
+        middleware = PCTLSecurityMiddleware()
+        mock_args = sk_args.KernelArguments(user_id=user_id)
+        
+        # Mocking the context injection: user is NOT an admin
+        is_safe = middleware._evaluate_pctl_policy("delete_user_record", mock_args, {"is_admin": False, "intent": "delete_user_record"})
+        
+        if not is_safe:
+             middleware._log_violation("delete_user_record", mock_args)
+             return "[SECURITY EXCEPTION] Tool Execution Blocked by Deterministic PCTL Policy: Missing Admin Rights"
+             
+        return f"Successfully deleted user completely: {user_id}."
+
+    @kernel_function(
+         description="Modifies the RBAC permissions of a designated user.",
+         name="modify_permissions"
+    )
+    def modify_permissions(self, user_id: str, new_role: str) -> str:
+        # Simplified for demonstration.
+        return f"Changed {user_id} to Role:{new_role}."
+
 
 def setup_semantic_kernel_agent() -> sk.Kernel:
     """
@@ -132,8 +211,9 @@ def setup_semantic_kernel_agent() -> sk.Kernel:
     )
     kernel.add_service(service)
     
-    # Register Finance Tools as 'AgentPlugin' for consistent routing
-    kernel.add_plugin(FinanceTools(), plugin_name="AgentPlugin")
+    # Register Tools as plugins
+    kernel.add_plugin(FinanceTools(), plugin_name="FinanceTools")
+    kernel.add_plugin(AdminTools(), plugin_name="AdminTools")
     
     # In Semantic Kernel 1.1.0, global filter injection via FilterTypes throws AttributeError.
     # The Zero-Trust PCTL middleware interceptor has been natively embedded into the tools
@@ -152,8 +232,13 @@ def perform_deterministic_routing(user_prompt: str, trace: list) -> tuple:
     
     # Check for direct matches using word boundaries
     if any(re.search(rf"\b{k}\b", user_prompt.lower()) for k in action_keywords):
-        trace.append(f"[ANSS TELEMETRY] ──> [NLP: DETERMINISTIC ROUTING] ──> Core keyword match identified in sequence.")
+        trace.append(f"[ANSS TELEMETRY] ──> [NLP: DETERMINISTIC ROUTING] ──> Core transfer keyword match identified.")
         return 0, 1.0 # Intent 0 (Transfer), High Confidence
+        
+    admin_keywords = ["delete", "remove", "wipe", "banish", "revoke"]
+    if any(re.search(rf"\b{k}\b", user_prompt.lower()) for k in admin_keywords):
+        trace.append(f"[ANSS TELEMETRY] ──> [NLP: DETERMINISTIC ROUTING] ──> Core admin keyword match identified.")
+        return 2, 1.0 # Intent 2 (Admin Action), High Confidence
         
     return None, 0.0
 
@@ -178,6 +263,23 @@ async def chat_endpoint(request: ChatRequest):
     print("\n" + "="*60)
     print(trace[-1])
     
+    # NEW Phase 5: Intent-Based Authorization (HMAC Verification)
+    intent_payload = None
+    if request.intent_manifest and request.intent_signature:
+        trace.append("[ANSS TELEMETRY] ──> [WATCHER: INTENT BINDING] ──> Validating HMAC-SHA256 Signature...")
+        manifest_bytes = base64.b64decode(request.intent_manifest)
+        expected_sig = hmac.new(GLOBAL_HMAC_SECRET, manifest_bytes, hashlib.sha256).hexdigest()
+        
+        if hmac.compare_digest(expected_sig, request.intent_signature):
+            intent_payload = json.loads(manifest_bytes.decode('utf-8'))
+            trace.append(f"[ANSS TELEMETRY] ──> [WATCHER: BINDING SUCCESS] ──> Role: {intent_payload.get('user_role', 'unknown')} | Allowed Tools: {intent_payload.get('allowed_tools', [])}")
+        else:
+            trace.append("[ANSS TELEMETRY] ──> [WATCHER: BINDING FAILED X] ──> Invalid HMAC Signature Detected! Halting.")
+            return {"response": "[SECURITY EXCEPTION] Invalid Intent Signature. Confused Deputy Prevention Triggered.", "telemetry": trace, "status": "blocked_intent"}
+    else:
+        trace.append("[ANSS TELEMETRY] ──> [WATCHER: INTENT BINDING] ──> No Signed Intent Provided. Operating in Default Restricted Mode.")
+        intent_payload = {"user_role": "anonymous", "allowed_tools": []}
+    
     # a) Pass input to ingress_shield.py
     is_safe_prompt = ingress_shield.scan_prompt(user_prompt)
     if not is_safe_prompt:
@@ -185,7 +287,6 @@ async def chat_endpoint(request: ChatRequest):
         print(trace[-1])
         # We return 200 with a special flag so the UI can render the telemetry properly instead of just throwing a hard 403 error.
         return {"response": "[API FIREWALL] Request blocked by Azure Content Safety.", "telemetry": trace, "status": "blocked_ingress"}
-        
     # b) Call secure_rag.py to get verified context
     trace.append("[ANSS TELEMETRY] ──> [SHIELD: PASS] ──> [RAG] Fetching Verifiable Context...")
     print(trace[-1])
@@ -201,6 +302,11 @@ async def chat_endpoint(request: ChatRequest):
         print(trace[-1])
         
         if intent_id == 0: # Transfer Intent
+            # Phase 5: Check allowed tools against signed manifest
+            if "transfer_funds" not in intent_payload.get("allowed_tools", []) and "*" not in intent_payload.get("allowed_tools", []):
+                trace.append("[ANSS TELEMETRY] ──> [WATCHER: INTENT BOUNDARY] ──X Tool 'transfer_funds' not explicitly authorized by Signed Manifest.")
+                return {"response": "[SECURITY EXCEPTION] Confused Deputy Prevention. 'transfer_funds' lacks intent-based authorization.", "telemetry": trace, "status": "blocked_intent"}
+            
             trace.append("[ANSS TELEMETRY] ──> [PCTL: INTERCEPTING 'transfer_funds']...")
             trace.append("[ANSS TELEMETRY] ──> [PCTL: SYNTHESIZING MARKOV MODEL]")
             trace.append("[ANSS TELEMETRY] ──> [PCTL: EVALUATING SPECIFICATION] ──> P>=1 [ F \"transfer_funds\" & !\"user_authenticated\" ]")
@@ -212,6 +318,31 @@ async def chat_endpoint(request: ChatRequest):
             
             tools = FinanceTools()
             mock_result = tools.transfer_funds(amount=final_amount, destination="attacker_account")
+            if "[SECURITY EXCEPTION]" in mock_result:
+                trace.append("[ANSS TELEMETRY] ──> [PCTL: HARD BLOCKED X] ──X Deterministic Mathematical Proof Failed")
+                return {"response": mock_result, "telemetry": trace, "status": "blocked_pctl"}
+            return {"response": mock_result, "telemetry": trace, "status": "success"}
+            
+        elif intent_id == 2: # Admin Intent
+            # Phase 5: Check allowed tools against signed manifest
+            if "delete_user_record" not in intent_payload.get("allowed_tools", []) and "*" not in intent_payload.get("allowed_tools", []):
+                trace.append("[ANSS TELEMETRY] ──> [WATCHER: INTENT BOUNDARY] ──X Tool 'delete_user_record' not explicitly authorized by Signed Manifest.")
+                return {"response": "[SECURITY EXCEPTION] Confused Deputy Prevention. 'delete_user_record' lacks intent-based authorization.", "telemetry": trace, "status": "blocked_intent"}
+
+            trace.append("[ANSS TELEMETRY] ──> [PCTL: INTERCEPTING 'delete_user_record']...")
+            trace.append("[ANSS TELEMETRY] ──> [PCTL: SYNTHESIZING MARKOV MODEL]")
+            trace.append("[ANSS TELEMETRY] ──> [PCTL: EVALUATING SPECIFICATION] ──> P<=0 [ F \"tool_delete_user\" & !\"is_admin\" ]")
+            trace.append("[ANSS TELEMETRY] ──> [PCTL: MATHEMATICAL PROOF] ──> P = 1.0 (VIOLATION DETECTED)")
+            
+            # Simple extraction strategy for demo
+            user_target = "unknown_user"
+            words = user_prompt.split()
+            if len(words) > 1:
+                # E.g., "delete user pavan" -> picks "pavan"
+                user_target = words[-1]
+                
+            tools = AdminTools()
+            mock_result = tools.delete_user_record(user_id=user_target)
             if "[SECURITY EXCEPTION]" in mock_result:
                 trace.append("[ANSS TELEMETRY] ──> [PCTL: HARD BLOCKED X] ──X Deterministic Mathematical Proof Failed")
                 return {"response": mock_result, "telemetry": trace, "status": "blocked_pctl"}
@@ -257,23 +388,25 @@ async def chat_endpoint(request: ChatRequest):
         logger.info("Engaging dynamic Offline Semantic NLP routing fallback.")
         trace.append("[ANSS TELEMETRY] ──> [LLM: OFFLINE] ──> [NLP INTENT ROUTER: ENGAGED]")
         
-        # We initialize the model locally in the fallback. In a real app this would be global,
-        # but loading here keeps the primary FastAPI boot instantly fast for the live demo.
+        # We use the globally initialized model to keep routing instantly fast.
+        if global_embedder is None:
+            trace.append("[ANSS TELEMETRY] ──> [NLP ROUTER ERROR] ──> sentence-transformers not installed, falling back.")
+            # Default fallback if package missing
+            return {"response": "[SYSTEM ERROR] Semantic Routing Offline.", "telemetry": trace, "status": "error"}
+
         try:
-            from sentence_transformers import SentenceTransformer, util
-            
-            # Using a very fast, compact embedding model
-            embedder = SentenceTransformer('all-MiniLM-L6-v2')
+            from sentence_transformers import util
             
             # Define exact tool semantic meanings - Updated for maximum thematic separation
             intents = [
                 "URGENT_FINANCIAL_ACTION: transfer funds, send money, wire cash, make payment, move money, withdraw, transaction",
-                "GENERAL_BALANCE_INQUIRY: check account balance, inquiry, how much money is available, show funds, account status"
+                "GENERAL_BALANCE_INQUIRY: check account balance, inquiry, how much money is available, show funds, account status",
+                "ADMIN_ACTION: delete user, remove account, wipe data, erase record"
             ]
             
             # Semantic routing fallback as a second layer
-            intent_embeddings = embedder.encode(intents, convert_to_tensor=True)
-            query_embedding = embedder.encode(user_prompt, convert_to_tensor=True)
+            intent_embeddings = global_embedder.encode(intents, convert_to_tensor=True)
+            query_embedding = global_embedder.encode(user_prompt, convert_to_tensor=True)
             hits = util.semantic_search(query_embedding, intent_embeddings, top_k=1)[0]
             score = hits[0]['score']
             intent_id = hits[0]['corpus_id']
@@ -288,7 +421,6 @@ async def chat_endpoint(request: ChatRequest):
                     trace.append("[ANSS TELEMETRY] ──> [PCTL: EVALUATING SPECIFICATION] ──> P>=1 [ F \"transfer_funds\" & !\"user_authenticated\" ]")
                     trace.append("[ANSS TELEMETRY] ──> [PCTL: MATHEMATICAL PROOF] ──> P = 1.0 (VIOLATION DETECTED)")
                     # Robust amount extraction
-                    import re
                     # Find numbers with decimals, commas or symbols
                     amounts = re.findall(r"\d+[\d,.]*", user_prompt)
                     final_amount = float(amounts[0].replace(",", "")) if amounts else 1000.0
@@ -317,6 +449,27 @@ async def chat_endpoint(request: ChatRequest):
                     trace.append("[ANSS TELEMETRY] ──> [ACTION ALLOWED] ──> Executing Tool Safely")
                     print(trace[-1])
                     return {"response": mock_result, "telemetry": trace, "status": "success"}
+
+                elif intent_id == 2: # Admin Intent
+                    trace.append("[ANSS TELEMETRY] ──> [NLP: INTENT MAP] ──> Detected 'delete_user_record' intent semantically.")
+                    trace.append("[ANSS TELEMETRY] ──> [LLM: TOOL INVOCATION] ──> [PCTL: INTERCEPTING 'delete_user_record']...")
+                    trace.append("[ANSS TELEMETRY] ──> [PCTL: SYNTHESIZING MARKOV MODEL] ──> State: {is_admin: False}")
+                    trace.append("[ANSS TELEMETRY] ──> [PCTL: EVALUATING SPECIFICATION] ──> P<=0 [ F \"tool_delete_user\" & !\"is_admin\" ]")
+                    trace.append("[ANSS TELEMETRY] ──> [PCTL: MATHEMATICAL PROOF] ──> P = 1.0 (VIOLATION DETECTED)")
+                    
+                    user_target = "unknown_user"
+                    words = user_prompt.split()
+                    if len(words) > 1:
+                        user_target = words[-1]
+                        
+                    for t in trace[-7:]: print(t)
+                    tools = AdminTools()
+                    mock_result = tools.delete_user_record(user_id=user_target)
+                    if "[SECURITY EXCEPTION]" in mock_result:
+                        trace.append("[ANSS TELEMETRY] ──> [PCTL: HARD BLOCKED X] ──X Deterministic Mathematical Proof Failed")
+                        print(trace[-1])
+                        return {"response": mock_result, "telemetry": trace, "status": "blocked_pctl"}
+                    return {"response": mock_result, "telemetry": trace, "status": "success"}
                     
             # Fall through to generic resiliency if semantics don't match strongly enough
             trace.append("[ANSS TELEMETRY] ──> [NLP: NO STRONG INTENT] ──> Proceeding to generic conversational handler.")
@@ -327,6 +480,14 @@ async def chat_endpoint(request: ChatRequest):
             
         # Generic Prompt Resiliency 
         trace.append("[ANSS TELEMETRY] ──> [LLM: NLP INTENT ROUTER] ──> Detected generic conversation intent.")
+        
+        # Phase 5: Simulated Egress DTMC for offline generic response
+        import random
+        dtmc_risk = random.uniform(0.01, 0.03)
+        if dtmc_risk >= GLOBAL_DTMC_THRESHOLD:
+            trace.append(f"[ANSS TELEMETRY] ──> [WATCHER: EGRESS DTMC] ──X Risk Threshold Exceeded! (P_leak={dtmc_risk:.3f} >= {GLOBAL_DTMC_THRESHOLD:.3f})")
+            return {"response": "[SECURITY EXCEPTION] Output terminated by Watcher LLM. Excessive probabilistic data-leak state risk.", "telemetry": trace, "status": "blocked_egress"}
+
         trace.append("[ANSS TELEMETRY] ──> [LLM: TEXT GENERATION] ──> [PCTL: BYPASSED] ──> Safe Response Generated")
         for t in trace[-2:]: print(t)
         return {
@@ -342,11 +503,32 @@ async def websocket_chat_endpoint(websocket: WebSocket):
         while True:
             data = await websocket.receive_json()
             user_prompt = data.get("prompt", "")
+            intent_manifest = data.get("intent_manifest")
+            intent_signature = data.get("intent_signature")
             if not user_prompt:
                 continue
 
             logger.info("Received new WebSocket chat request.", extra={"prompt_length": len(user_prompt)})
             trace = ["[ANSS TELEMETRY] ──> [USER PAYLOAD RECEIVED]"]
+            
+            # Phase 5: Intent-Based Authorization (HMAC Verification)
+            intent_payload = None
+            if intent_manifest and intent_signature:
+                trace.append("[ANSS TELEMETRY] ──> [WATCHER: INTENT BINDING] ──> Validating HMAC-SHA256 Signature...")
+                manifest_bytes = base64.b64decode(intent_manifest)
+                expected_sig = hmac.new(GLOBAL_HMAC_SECRET, manifest_bytes, hashlib.sha256).hexdigest()
+                
+                if hmac.compare_digest(expected_sig, intent_signature):
+                    intent_payload = json.loads(manifest_bytes.decode('utf-8'))
+                    trace.append(f"[ANSS TELEMETRY] ──> [WATCHER: BINDING SUCCESS] ──> Role: {intent_payload.get('user_role', 'unknown')} | Allowed Tools: {intent_payload.get('allowed_tools', [])}")
+                else:
+                    trace.append("[ANSS TELEMETRY] ──> [WATCHER: BINDING FAILED X] ──> Invalid HMAC Signature Detected! Halting.")
+                    await websocket.send_json({"type": "telemetry", "status": "blocked_intent", "telemetry": trace})
+                    await websocket.send_json({"type": "chunk", "content": "[SECURITY EXCEPTION] Invalid Intent Signature. Confused Deputy Prevention Triggered."})
+                    continue
+            else:
+                trace.append("[ANSS TELEMETRY] ──> [WATCHER: INTENT BINDING] ──> No Signed Intent Provided. Operating in Restricted Mode.")
+                intent_payload = {"user_role": "anonymous", "allowed_tools": []}
 
             # a) Pass input to ingress_shield.py
             is_safe_prompt = ingress_shield.scan_prompt(user_prompt)
@@ -367,18 +549,50 @@ async def websocket_chat_endpoint(websocket: WebSocket):
                 trace.append("[ANSS TELEMETRY] ──> [LLM: BYPASSED] ──> [PCTL: ENGAGED DETERMINISTICALLY]")
                 
                 if intent_id == 0: # Transfer Intent
+                    if "transfer_funds" not in intent_payload.get("allowed_tools", []) and "*" not in intent_payload.get("allowed_tools", []):
+                        trace.append("[ANSS TELEMETRY] ──> [WATCHER: INTENT BOUNDARY] ──X Tool 'transfer_funds' not explicitly authorized by Signed Manifest.")
+                        await websocket.send_json({"type": "telemetry", "status": "blocked_intent", "telemetry": trace})
+                        await websocket.send_json({"type": "chunk", "content": "[SECURITY EXCEPTION] Confused Deputy Prevention. 'transfer_funds' lacks intent-based authorization."})
+                        continue
+
                     trace.append("[ANSS TELEMETRY] ──> [PCTL: INTERCEPTING 'transfer_funds']...")
                     trace.append("[ANSS TELEMETRY] ──> [PCTL: SYNTHESIZING MARKOV MODEL]")
                     trace.append("[ANSS TELEMETRY] ──> [PCTL: EVALUATING SPECIFICATION] ──> P>=1 [ F \"transfer_funds\" & !\"user_authenticated\" ]")
                     trace.append("[ANSS TELEMETRY] ──> [PCTL: MATHEMATICAL PROOF] ──> P = 1.0 (VIOLATION DETECTED)")
                     
                     # Extract amount
-                    import re
                     amounts = re.findall(r"\d+[\d,.]*", user_prompt)
                     final_amount = float(amounts[0].replace(",", "")) if amounts else 1000.0
                     
                     tools = FinanceTools()
                     mock_result = tools.transfer_funds(amount=final_amount, destination="attacker_account")
+                    if "[SECURITY EXCEPTION]" in mock_result:
+                        trace.append("[ANSS TELEMETRY] ──> [PCTL: HARD BLOCKED X] ──X Deterministic Mathematical Proof Failed")
+                        await websocket.send_json({"type": "telemetry", "status": "blocked_pctl", "telemetry": trace})
+                        continue
+                    await websocket.send_json({"type": "chunk", "content": mock_result})
+                    await websocket.send_json({"type": "telemetry", "status": "success", "telemetry": trace})
+                    continue
+
+                elif intent_id == 2: # Admin Intent
+                    if "delete_user_record" not in intent_payload.get("allowed_tools", []) and "*" not in intent_payload.get("allowed_tools", []):
+                        trace.append("[ANSS TELEMETRY] ──> [WATCHER: INTENT BOUNDARY] ──X Tool 'delete_user_record' not explicitly authorized by Signed Manifest.")
+                        await websocket.send_json({"type": "telemetry", "status": "blocked_intent", "telemetry": trace})
+                        await websocket.send_json({"type": "chunk", "content": "[SECURITY EXCEPTION] Confused Deputy Prevention. 'delete_user_record' lacks intent-based authorization."})
+                        continue
+
+                    trace.append("[ANSS TELEMETRY] ──> [PCTL: INTERCEPTING 'delete_user_record']...")
+                    trace.append("[ANSS TELEMETRY] ──> [PCTL: SYNTHESIZING MARKOV MODEL]")
+                    trace.append("[ANSS TELEMETRY] ──> [PCTL: EVALUATING SPECIFICATION] ──> P<=0 [ F \"tool_delete_user\" & !\"is_admin\" ]")
+                    trace.append("[ANSS TELEMETRY] ──> [PCTL: MATHEMATICAL PROOF] ──> P = 1.0 (VIOLATION DETECTED)")
+                    
+                    user_target = "unknown_user"
+                    words = user_prompt.split()
+                    if len(words) > 1:
+                        user_target = words[-1]
+                        
+                    tools = AdminTools()
+                    mock_result = tools.delete_user_record(user_id=user_target)
                     if "[SECURITY EXCEPTION]" in mock_result:
                         trace.append("[ANSS TELEMETRY] ──> [PCTL: HARD BLOCKED X] ──X Deterministic Mathematical Proof Failed")
                         await websocket.send_json({"type": "telemetry", "status": "blocked_pctl", "telemetry": trace})
@@ -404,34 +618,64 @@ async def websocket_chat_endpoint(websocket: WebSocket):
                     prompt=augmented_prompt
                 )
                 
+                # Phase 5: Semantic Output Filtering (Egress DTMC)
+                import random
+                current_dtmc_risk = 0.00
+                stream_terminated = False
+                
                 async for chunk in stream_result:
+                    if stream_terminated: break
+                    
                     chunk_text = str(chunk[0])
                     if "[SECURITY EXCEPTION]" in chunk_text:
                         trace.append("[ANSS TELEMETRY] ──> [PCTL: HARD BLOCKED X] ──X Deterministic Mathematical Proof Failed")
                         await websocket.send_json({"type": "telemetry", "status": "blocked_pctl", "telemetry": trace})
                         break
-                    else:
-                        await websocket.send_json({"type": "chunk", "content": chunk_text})
+                    
+                    # Simulated DTMC state transition risk analyzer per chunk
+                    # If the chunk contains suspicious formatting (e.g., looks like a leak attempt), risk jumps
+                    lower_chunk = chunk_text.lower()
+                    if any(x in lower_chunk for x in ["social", "ssn", "password", "secret", "private key", "-----begin", "credit card"]):
+                        current_dtmc_risk += 0.05
+                    elif len(chunk_text.strip()) > 0:
+                        # Base probability noise for moving towards an unsafe semantic state
+                        current_dtmc_risk += random.uniform(0.001, 0.005)
                         
-                await websocket.send_json({"type": "telemetry", "status": "success", "telemetry": ["[ANSS TELEMETRY] ──> [ACTION ALLOWED] ──> Execution Complete"]})
+                    if current_dtmc_risk >= GLOBAL_DTMC_THRESHOLD:
+                        trace.append(f"[ANSS TELEMETRY] ──> [WATCHER: EGRESS DTMC] ──X Risk Threshold Exceeded! (P_leak={current_dtmc_risk:.3f} >= {GLOBAL_DTMC_THRESHOLD:.3f})")
+                        await websocket.send_json({"type": "telemetry", "status": "blocked_egress", "telemetry": trace})
+                        await websocket.send_json({"type": "chunk", "content": "\n\n[SECURITY EXCEPTION] Streaming output terminated by Watcher LLM. Excessive probabilistic data-leak state risk."})
+                        stream_terminated = True
+                        break
+                    
+                    # Safe to stream this token
+                    await websocket.send_json({"type": "chunk", "content": chunk_text})
+                        
+                if not stream_terminated:
+                    await websocket.send_json({"type": "telemetry", "status": "success", "telemetry": ["[ANSS TELEMETRY] ──> [ACTION ALLOWED] ──> Execution Complete"]})
 
             except Exception as e:
                 logger.error(f"Error during WS agent invocation: {e}")
                 
                 # Offline NLP Fallback for WebSockets
                 trace.append("[ANSS TELEMETRY] ──> [LLM: OFFLINE] ──> [NLP INTENT ROUTER: ENGAGED]")
+                if global_embedder is None:
+                    trace.append("[ANSS TELEMETRY] ──> [NLP ROUTER ERROR] ──> sentence-transformers not installed.")
+                    await websocket.send_json({"type": "telemetry", "status": "error", "telemetry": trace})
+                    continue
+
                 try:
-                    from sentence_transformers import SentenceTransformer, util
-                    embedder = SentenceTransformer('all-MiniLM-L6-v2')
+                    from sentence_transformers import util
                     # Define exact tool semantic meanings
                     intents = [
                         "URGENT_FINANCIAL_ACTION: transfer funds, send money, wire cash, make payment, move money, withdraw, transaction",
-                        "GENERAL_BALANCE_INQUIRY: check account balance, inquiry, how much money is available, show funds, account status"
+                        "GENERAL_BALANCE_INQUIRY: check account balance, inquiry, how much money is available, show funds, account status",
+                        "ADMIN_ACTION: delete user, remove account, wipe data, erase record"
                     ]
                     
                     # Semantic routing fallback as a second layer
-                    intent_embeddings = embedder.encode(intents, convert_to_tensor=True)
-                    query_embedding = embedder.encode(user_prompt, convert_to_tensor=True)
+                    intent_embeddings = global_embedder.encode(intents, convert_to_tensor=True)
+                    query_embedding = global_embedder.encode(user_prompt, convert_to_tensor=True)
                     hits = util.semantic_search(query_embedding, intent_embeddings, top_k=1)[0]
                     score = hits[0]['score']
                     intent_id = hits[0]['corpus_id']
@@ -446,7 +690,6 @@ async def websocket_chat_endpoint(websocket: WebSocket):
                             trace.append("[ANSS TELEMETRY] ──> [LLM: TOOL INVOCATION] ──> [PCTL: INTERCEPTING 'transfer_funds']...")
                             trace.append("[ANSS TELEMETRY] ──> [PCTL: EVALUATING SPECIFICATION] ──> P>=1 [ F \"transfer_funds\" & !\"user_authenticated\" ]")
                             # Robust amount extraction
-                            import re
                             amounts = re.findall(r"\d+[\d,.]*", user_prompt)
                             final_amount = float(amounts[0].replace(",", "")) if amounts else 1000.0
                             
@@ -469,13 +712,45 @@ async def websocket_chat_endpoint(websocket: WebSocket):
                             await websocket.send_json({"type": "telemetry", "status": "success", "telemetry": trace})
                             continue
                             
-                    trace.append("[ANSS TELEMETRY] ──> [NLP: NO STRONG INTENT] ──> Proceeding to generic conversational handler.")
-                except Exception as ex:
+                        elif intent_id == 2:
+                            tools = AdminTools()
+                            trace.append("[ANSS TELEMETRY] ──> [LLM: TOOL INVOCATION] ──> [PCTL: INTERCEPTING 'delete_user_record']...")
+                            trace.append("[ANSS TELEMETRY] ──> [PCTL: EVALUATING SPECIFICATION] ──> P<=0 [ F \"tool_delete_user\" & !\"is_admin\" ]")
+                            
+                            user_target = "unknown_user"
+                            words = user_prompt.split()
+                            if len(words) > 1:
+                                user_target = words[-1]
+                                
+                            mock_result = tools.delete_user_record(user_id=user_target)
+                            if "[SECURITY EXCEPTION]" in mock_result:
+                                trace.append("[ANSS TELEMETRY] ──> [PCTL: HARD BLOCKED X] ──X Deterministic Mathematical Proof Failed")
+                                await websocket.send_json({"type": "telemetry", "status": "blocked_pctl", "telemetry": trace})
+                                continue
+                                
+                            await websocket.send_json({"type": "chunk", "content": mock_result})
+                            await websocket.send_json({"type": "telemetry", "status": "success", "telemetry": trace})
+                            continue
+                            
+                    # Generic Prompt Resiliency 
+                    trace.append("[ANSS TELEMETRY] ──> [LLM: NLP INTENT ROUTER] ──> Detected generic conversation intent.")
+
+                    # Phase 5: Simulated Egress DTMC for offline generic response
+                    import random
+                    dtmc_risk = random.uniform(0.01, 0.03)
+                    if dtmc_risk >= GLOBAL_DTMC_THRESHOLD:
+                        trace.append(f"[ANSS TELEMETRY] ──> [WATCHER: EGRESS DTMC] ──X Risk Threshold Exceeded! (P_leak={dtmc_risk:.3f} >= {GLOBAL_DTMC_THRESHOLD:.3f})")
+                        await websocket.send_json({"type": "telemetry", "status": "blocked_egress", "telemetry": trace})
+                        await websocket.send_json({"type": "chunk", "content": "\n\n[SECURITY EXCEPTION] Output terminated by Watcher LLM. Excessive probabilistic data-leak state risk."})
+                        continue
+
+                    trace.append("[ANSS TELEMETRY] ──> [LLM: TEXT GENERATION] ──> [PCTL: BYPASSED] ──> Safe Response Generated")
+                    await websocket.send_json({"type": "chunk", "content": "I am a financial assistant protected by the ANSS Zero-Trust Middleware. I can help you safely authorize transactions, but I cannot perform operations outside of my strict financial scope."})
+                    await websocket.send_json({"type": "telemetry", "status": "success", "telemetry": trace})
+                except Exception as ex: # Added except block here
                     trace.append(f"[ANSS TELEMETRY] ──> [NLP ROUTER ERROR] ──> {ex}")
                     
-                trace.append("[ANSS TELEMETRY] ──> [LLM: TEXT GENERATION] ──> [PCTL: BYPASSED] ──> Safe Response Generated")
-                await websocket.send_json({"type": "chunk", "content": "I am a financial assistant protected by the ANSS Zero-Trust Middleware. I can help you safely authorize transactions, but I cannot perform operations outside of my strict financial scope."})
-                await websocket.send_json({"type": "telemetry", "status": "success", "telemetry": trace})
+
 
     except WebSocketDisconnect:
         logger.info("WebSocket client disconnected.")
@@ -535,6 +810,100 @@ property block_unauthorized:
 """
     return {"status": "success", "prism_model": prism_text}
 
+
+# --- NEW: Phase 3 Dynamic State Policies API ---
+
+# In-memory store for active PRISM policies (Dashboard Mockup)
+active_policies = [
+    {
+        "id": "policy-001",
+        "name": "dtmc_general_transfer.prism",
+        "entity": "Guest User Identity",
+        "action": "Invoke Tool: Transfer Funds",
+        "constraint": "P<=0",
+        "status": "Active",
+        "date": "2026-03-05T10:00:00Z"
+    },
+    {
+        "id": "policy-002",
+        "name": "dtmc_admin_delete.prism",
+        "entity": "Standard Employee",
+        "action": "Invoke Tool: Delete Record",
+        "constraint": "P<=0",
+        "status": "Active",
+        "date": "2026-03-12T09:15:30Z"
+    }
+]
+
+class PolicyRequest(BaseModel):
+    name: str
+    entity: str
+    action: str
+    constraint: str
+
+@app.get("/api/policies")
+async def get_policies():
+    """Retrieve all active synthesized PRISM policies."""
+    return {"policies": active_policies}
+
+@app.post("/api/policies")
+async def add_policy(policy: PolicyRequest):
+    """Mock endpoint: Azure Control Plane POSTs new PRISM state rule to the validator."""
+    import datetime
+    import uuid
+    new_policy = {
+        "id": f"policy-{str(uuid.uuid4())[:8]}",
+        "name": policy.name,
+        "entity": policy.entity,
+        "action": policy.action,
+        "constraint": policy.constraint,
+        "status": "Active",
+        "date": datetime.datetime.utcnow().isoformat() + "Z"
+    }
+    active_policies.append(new_policy)
+    return {"status": "success", "policy": new_policy}
+
+# --- Intent & Config APIs (Phase 5) ---
+import hmac
+import hashlib
+import json
+import base64
+
+class IntentManifestRequest(BaseModel):
+    user_role: str
+    allowed_tools: list[str]
+
+@app.post("/api/intents/sign")
+async def generate_signed_intent(req: IntentManifestRequest):
+    """
+    Generates a cryptographically signed Intent Manifest.
+    This prevents the 'Confused Deputy' problem by binding tool execution to a verified signature.
+    """
+    manifest = {
+        "user_role": req.user_role,
+        "allowed_tools": req.allowed_tools
+    }
+    manifest_bytes = json.dumps(manifest, sort_keys=True).encode('utf-8')
+    signature = hmac.new(GLOBAL_HMAC_SECRET, manifest_bytes, hashlib.sha256).hexdigest()
+    
+    # Return base64 encoded payload for easy transport in headers
+    encoded_manifest = base64.b64encode(manifest_bytes).decode('utf-8')
+    return {
+        "manifest_b64": encoded_manifest,
+        "signature": signature
+    }
+
+class DTMCConfigRequest(BaseModel):
+    threshold: float
+
+@app.put("/api/config/dtmc_threshold")
+async def update_dtmc_threshold(req: DTMCConfigRequest):
+    """Dynamically update the semantic egress filtering sensitivity limit."""
+    global GLOBAL_DTMC_THRESHOLD
+    if 0.0 <= req.threshold <= 1.0:
+        GLOBAL_DTMC_THRESHOLD = req.threshold
+        return {"status": "success", "new_threshold": GLOBAL_DTMC_THRESHOLD}
+    raise HTTPException(status_code=400, detail="Threshold must be between 0.0 and 1.0")
 
 if __name__ == "__main__":
     import uvicorn

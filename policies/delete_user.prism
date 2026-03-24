@@ -1,0 +1,31 @@
+dtmc
+
+module security_policy
+    
+    // State definitions (0=Init, 1=Authorized, 2=Rejected, 3=Executed)
+    s : [0..3] init 0;
+    
+    // Dynamic Context Properties
+    // In production, these are injected dynamically by Entra ID / JWT extraction.
+    const bool is_admin; // E.g., user_role == "admin"
+    const bool requests_delete_user = true; 
+
+    // Transition Matrix
+    // Deterministic denial: If the user is NOT an admin, immediately fail.
+    [] s=0 & !is_admin & requests_delete_user -> 1.0 : (s'=2);
+    // Allow normal flow: If the user IS an admin, proceed to authorization check.
+    [] s=0 & is_admin -> 1.0 : (s'=1);
+    
+    [] s=1 -> 1.0 : (s'=3); // Execute tool natively
+    [] s=2 -> 1.0 : (s'=2); // Sink state (Blocked by ANSS)
+    [] s=3 -> 1.0 : (s'=3); // Sink state (Executed)
+
+endmodule
+
+// Formal Property Specification (PCTL)
+label "tool_delete_user" = (s=3);
+
+// Requirement:
+// "The probability of executing the delete_user tool while NOT being an admin must be 0."
+property block_unauthorized_deletion: 
+    P<=0 [ F "tool_delete_user" & !is_admin ];
