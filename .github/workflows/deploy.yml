@@ -24,9 +24,3 @@ jobs:
         docker build -t anssregistry123.azurecr.io/anss-app:latest .
         docker push anssregistry123.azurecr.io/anss-app:latest
 
-    - name: Deploy to Azure Web App
-      uses: azure/webapps-deploy@v2
-      with:
-        app-name: 'anss-middleware-svc123'
-        publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
-        images: 'anssregistry123.azurecr.io/anss-app:latest'
