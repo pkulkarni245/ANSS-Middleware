@@ -123,6 +123,52 @@ async def upload_artifact(file: UploadFile = File(...)):
     logger.info(f"New security artifact uploaded: {file.filename}")
     return {"status": "success", "filename": file.filename, "path": file_path}
 
+class CopilotRequest(BaseModel):
+    prompt: str
+
+@app.post("/api/policies/generate")
+async def copilot_generate_policy(req: CopilotRequest):
+    """
+    Symbolic Bridge: Translates Natural Language into PCTL State-Space selections.
+    """
+    p = req.prompt.lower()
+    
+    # Default fallback
+    entity = "user_employee"
+    action = "read_db"
+    constraint = "P<=0"
+    
+    # Entity heuristics
+    if "admin" in p or "root" in p:
+        entity = "user_admin"
+    elif "finance" in p or "agent" in p:
+        entity = "ai_agent_finance"
+    elif "guest" in p or "unauthenticated" in p or "public" in p:
+        entity = "user_guest"
+        
+    # Action heuristics
+    if "transfer" in p or "money" in p or "send" in p or "fund" in p:
+        action = "invoke_transfer"
+    elif "delete" in p or "remove" in p or "wipe" in p or "destroy" in p:
+        action = "invoke_delete"
+        
+    # Constraint heuristics
+    if "allow" in p or "permit" in p or ("can" in p and "cannot" not in p and "can't" not in p):
+        constraint = "P>=1"
+    elif "maybe" in p or "probable" in p or "audit" in p:
+        constraint = "P>0.95"
+    else:
+        # Default to deny if words like stop, block, deny, cannot, don't, shouldn't are found
+        constraint = "P<=0"
+        
+    return {
+        "entity": entity,
+        "action": action,
+        "constraint": constraint,
+        "explanation": f"Azure Copilot mapped intent: [{entity}] -> [{action}] with formal constraint [{constraint}]."
+    }
+
+
 class PolicyRequest(BaseModel):
     name: str
     content: str

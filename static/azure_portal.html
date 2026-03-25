@@ -481,12 +481,27 @@
             </p>
 
             <div class="mb-6 p-4 border border-gray-200 rounded bg-blue-50">
-                <h3 class="text-sm font-semibold text-blue-800 mb-2"><i class="fa-solid fa-circle-info mr-1"></i> How it
-                    works</h3>
-                <p class="text-xs text-blue-700">Instead of traditional RBAC, ANSS mathematically models AI execution as
-                    a Markov Chain. Defining a constraint guarantees zero probability of an AI agent reaching an illegal
-                    state, regardless of prompt injection attacks.</p>
+                <h3 class="text-sm font-semibold text-blue-800 mb-2"><i class="fa-solid fa-circle-info mr-1"></i> How it works</h3>
+                <p class="text-xs text-blue-700">Instead of traditional RBAC, ANSS mathematically models AI execution as a Markov Chain. Defining a constraint guarantees zero probability of an AI agent reaching an illegal state, regardless of prompt injection attacks.</p>
             </div>
+
+            <!-- AZURE COPILOT SECTION -->
+            <div class="mb-6 p-4 border border-blue-200 rounded-lg bg-white shadow-sm relative overflow-hidden">
+                <div class="absolute top-0 left-0 w-1 h-full bg-gradient-to-b from-blue-400 to-purple-500"></div>
+                <div class="flex items-center mb-3">
+                    <i class="fa-solid fa-wand-magic-sparkles text-purple-600 mr-2"></i>
+                    <h3 class="text-sm font-bold text-gray-800">Symbolic Bridge (Azure AI)</h3>
+                </div>
+                <p class="text-xs text-gray-500 mb-3">Describe your security policy in natural language, and the Meta-Agent will synthesize the formal PRISM state-space constraints.</p>
+                <div class="flex gap-2">
+                    <input type="text" id="copilotPrompt" class="form-input !mb-0 text-sm w-full" placeholder="e.g., Stop employees from transferring funds...">
+                    <button class="primary-btn bg-purple-600 hover:bg-purple-700 whitespace-nowrap" onclick="generateWithCopilot(event)">
+                        <i class="fa-solid fa-sparkles mr-1"></i> Synthesize
+                    </button>
+                </div>
+                <div id="copilotFeedback" class="text-xs text-green-600 mt-2 hidden font-medium"></div>
+            </div>
+            <!-- END AZURE COPILOT SECTION -->
 
             <label class="form-label">Select Entity (Origin)</label>
             <select class="form-select" id="entitySelect">
@@ -668,6 +683,42 @@
         document.addEventListener('DOMContentLoaded', fetchPolicies);
 
         let currentEditingPolicy = null;
+
+        async function generateWithCopilot(event) {
+            const prompt = document.getElementById('copilotPrompt').value;
+            if(!prompt) return;
+            
+            const btn = event.currentTarget;
+            const originalHtml = btn.innerHTML;
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i> Synthesizing...';
+            btn.disabled = true;
+            
+            try {
+                const response = await fetch('/api/policies/generate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ prompt: prompt })
+                });
+                const data = await response.json();
+                
+                document.getElementById('entitySelect').value = data.entity;
+                document.getElementById('actionSelect').value = data.action;
+                document.getElementById('constraintSelect').value = data.constraint;
+                
+                const feedback = document.getElementById('copilotFeedback');
+                feedback.innerHTML = `<i class="fa-solid fa-check mr-1"></i> ${data.explanation}`;
+                feedback.classList.remove('hidden');
+                
+            } catch(e) {
+                console.error("Copilot Error:", e);
+                const feedback = document.getElementById('copilotFeedback');
+                feedback.innerHTML = `<i class="fa-solid fa-triangle-exclamation mr-1 text-red-500"></i> <span class="text-red-500">Failed to reach Symbolic Bridge API.</span>`;
+                feedback.classList.remove('hidden');
+            } finally {
+                btn.innerHTML = originalHtml;
+                btn.disabled = false;
+            }
+        }
 
         async function fetchPolicies() {
             try {

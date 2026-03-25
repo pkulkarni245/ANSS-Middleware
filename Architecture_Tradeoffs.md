@@ -60,3 +60,15 @@ Due to the constraints of the Azure for Students tier, we deployed the entire or
 *   **Cons (Security Architecture Flaw):** In a production environment, having the security validator reside in the same memory space and container as the vulnerable LLM orchestrator is an anti-pattern. An RCE (Remote Code Execution) vulnerability in FastAPI could allow an attacker to bypass the middleware entirely. 
 *   **Mitigation (Phase 2):** As outlined in the Phase 2 plan, moving the validator to an isolated Azure Function utilizing Managed Identity RBAC provides the necessary cryptographic isolation using PAAS components within the student tier.
     *   *Note: For the purposes of the live hackathon prototype evaluation, this serverless cryptographic isolation has been explicitly deferred. The focus remains on evaluating the mathematical state machine dynamically. True physical isolation is scheduled for the production rollout.*
+
+---
+
+## 6. Symbolic Bridge: Heuristic Semantic Routing vs. Native LLM Generation
+
+### The Decision
+For the **Azure Copilot** feature (which translates natural language into formal PRISM policies), we implemented a deterministic heuristic/semantic routing layer in the prototype API rather than performing a live, dynamic completion call to Azure OpenAI for every keystroke.
+
+### Tradeoffs
+*   **Pros (Demo Reliability & Cost):** It bypasses the Azure for Students quota limits for Azure OpenAI model throughput, guaranteeing instantaneous and mathematically exact `Entity -> Action -> Constraint` translations during live judging without the risk of API timeouts or hallucinations mid-demo.
+*   **Cons (Rigidity):** It is inherently bounded by the heuristic/semantic logic mapped in the python endpoint. It lacks the true generative fluidity to understand drastically abstract commands.
+*   **Mitigation (Production):** A production implementation will wire this directly to an advanced semantic router powered by `gpt-4o` with strict `Instructor` or DSPy JSON schemas, fully synthesizing the `.prism` file using formal generation logic rather than exact keyword mapping.

@@ -35,6 +35,7 @@ flowchart LR
 | **API Firewall** | `ingress_shield.py` | Uses Azure AI Content Safety (Prompt Shields) to block jailbreaks before the LLM sees them. |
 | **Verifiable Context** | `secure_rag.py` | Retrieves context from Azure AI Search and validates cryptographic HMAC signatures against Azure Key Vault. Drops poisoned documents. |
 | **Root of Trust** | `agent_middleware.py` | Models tool execution as a Discrete-Time Markov Chain (DTMC). Uses PCTL formal verification via `stormpy` to mathematically prove whether an action is safe. If the proof fails, execution is **hard-blocked**. |
+| **Symbolic Bridge** | `main.py` | Fast semantic routing endpoint that uses Azure AI to translate Natural Language policies into deterministic PRISM logic equations. |
 | **Orchestrator** | `main.py` | FastAPI server wiring all components together + live PRISM compilation API. |
 
 ---
@@ -46,11 +47,11 @@ ANSS ships with **two** separate frontend experiences:
 ### 1. Zero-Trust Chat Visualizer (`/`)
 A dark-mode glassmorphism chat application with an embedded ASCII terminal telemetry widget. Type prompts and watch the security pipeline intercept malicious requests in real-time.
 
-### 2. Azure Portal CISO Mockup (`/static/azure_portal_fluent.html`)
+### 2. Azure Portal CISO Mockup (`/static/azure_portal_fluent.html` and `/`)
 A high-fidelity Microsoft Fluent UI mockup simulating how a CISO would configure ANSS security rules in the Azure Portal. Features:
-- **Interactive Policy Builder** — Select Entity, Action, and PCTL Mathematical Constraint
-- **Live PRISM Compilation** — Calls `/api/compile-prism` to dynamically generate `.prism` DTMC models
-- **Dynamic State Machine Visualization** — Mermaid.js renders the Markov Chain transitions in real-time
+- **Symbolic Bridge (Azure Copilot)** — Integrated AI helper that generates mathematical PCTL state-spaces directly from English descriptions.
+- **Interactive Policy Builder** — Select Entity, Action, and PCTL Mathematical Constraint manually or via Copilot.
+- **Dynamic Policy Persistence** — Dynamically loading PRISM rule files tied to a pseudo-Azure blob storage structure.
 
 ---
 
