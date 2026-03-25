@@ -40,6 +40,7 @@
             margin: 0 auto;
             padding: 2rem;
             gap: 2rem;
+            height: calc(100vh - 4rem);
         }
 
         /* Sidebar: Instructions & Architecture */
@@ -48,7 +49,20 @@
             display: flex;
             flex-direction: column;
             gap: 1.5rem;
+            flex-shrink: 0;
+            overflow-y: auto;
+            padding-right: 0.5rem;
         }
+
+        .sidebar::-webkit-scrollbar {
+            width: 4px;
+        }
+
+        .sidebar::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 2px;
+        }
+
 
         .glass-panel {
             background: var(--glass-bg);
@@ -194,12 +208,12 @@
             white-space: pre-wrap;
         }
 
-        /* Chat Window */
         .chat-section {
             flex-grow: 1;
             display: flex;
             flex-direction: column;
             gap: 1rem;
+            min-height: 0;
         }
 
         .chat-window {
@@ -210,6 +224,8 @@
             gap: 1rem;
             padding-right: 1rem;
         }
+
+
 
         /* Scrollbar styling */
         .chat-window::-webkit-scrollbar {
@@ -448,8 +464,9 @@
 
             <!-- Global Telemetry Widget -->
             <div class="terminal-widget" id="global-telemetry-widget"
-                style="margin-top: 0; max-height: 400px; display: flex; flex-direction: column;">
+                style="margin-top: 0; height: 350px; flex-shrink: 0; display: flex; flex-direction: column;">
                 <div class="terminal-header" id="global-telemetry-header">
+
                     <span>GLOBAL PIPELINE LOGS</span>
                     <div style="display: flex; gap: 15px; align-items: center;">
                         <span id="download-trace-btn"

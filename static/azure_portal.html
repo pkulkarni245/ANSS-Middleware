@@ -15,7 +15,9 @@
             margin: 0;
             padding: 0;
             overflow: hidden;
+            height: 100vh;
         }
+
 
         .azure-topbar {
             background-color: #0078d4;
@@ -29,16 +31,20 @@
 
         .azure-sidebar {
             width: 250px;
+            flex-shrink: 0;
             background-color: #ffffff;
             height: calc(100vh - 48px);
             border-right: 1px solid #edebe9;
             overflow-y: auto;
+            display: flex;
+            flex-direction: column;
         }
 
         .azure-content {
-            width: calc(100vw - 250px);
+            flex-grow: 1;
             height: calc(100vh - 48px);
             overflow-y: auto;
+            overflow-x: auto;
             background-color: #ffffff;
             display: flex;
             flex-direction: column;
@@ -107,6 +113,7 @@
             border-bottom: 1px solid #edebe9;
             padding: 12px 16px;
             display: flex;
+            min-width: 1000px;
         }
 
         .table-row {
@@ -115,6 +122,7 @@
             padding: 12px 16px;
             display: flex;
             align-items: center;
+            min-width: 1000px;
         }
 
         .table-row:hover {
@@ -131,6 +139,7 @@
             color: #0078d4;
             font-weight: 500;
             cursor: pointer;
+            flex-shrink: 0;
         }
 
         .col-type {
@@ -232,6 +241,36 @@
             margin-bottom: 16px;
         }
 
+        .container {
+            display: flex;
+            width: 100%;
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 2rem;
+            gap: 2rem;
+            height: calc(100vh - 4rem);
+            box-sizing: border-box;
+        }
+
+        .sidebar {
+            width: 350px;
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+            flex-shrink: 0;
+            height: 100%;
+            overflow-y: auto;
+            padding-right: 0.5rem;
+        }
+
+        .chat-section {
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            height: 100%;
+            min-height: 0; /* Important for scrollable children */
+        }
         .form-select:focus,
         .form-input:focus {
             outline: none;
@@ -327,13 +366,14 @@
         <div class="azure-sidebar">
             <div class="px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Favorites</div>
             <div class="nav-item active"><i class="fa-solid fa-cube nav-icon"></i> All resources</div>
+            <a href="#" class="nav-item" onclick="openBlade('sentinelBlade')"><i class="fa-solid fa-server nav-icon"></i> Sentinel Management</a>
             <div class="nav-item"><i class="fa-solid fa-cubes nav-icon"></i> Resource groups</div>
             <div class="nav-item"><i class="fa-solid fa-server nav-icon"></i> App Services</div>
             <div class="nav-item"><i class="fa-solid fa-database nav-icon"></i> SQL databases</div>
 
             <div class="px-4 py-3 text-xs font-semibold text-gray-500 uppercase mt-4">Microsoft Foundry <span
                     class="bg-blue-100 text-blue-700 px-1 rounded ml-2 text-[10px]">PREVIEW</span></div>
-            <div class="nav-item"><i class="fa-solid fa-book-open nav-icon"></i> Overview</div>
+            <div class="nav-item" onclick="openBlade('sentinelBlade')"><i class="fa-solid fa-book-open nav-icon"></i> Sentinel Overview</div>
             <a href="#" class="nav-item" onclick="openBlade('pctlBlade')"><i class="fa-solid fa-shield-halved nav-icon text-purple-600"></i> ANSS Security Policies</a>
             <a href="#" class="nav-item" onclick="openBlade('intentBlade')"><i class="fa-solid fa-key nav-icon"></i> Intent Manifests</a>
             <a href="#" class="nav-item" onclick="openBlade('egressBlade')"><i class="fa-solid fa-chart-line nav-icon"></i> Egress Telemetry</a>
@@ -582,9 +622,52 @@
         </div>
     </div>
 
+
+    <!-- Sentinel Management Blade -->
+    <div class="blade-overlay" id="overlay-sentinelBlade" onclick="closeBlade('sentinelBlade')"></div>
+    <div class="blade" id="sentinelBlade">
+        <div class="blade-header bg-gray-50">
+            <div class="flex items-center">
+                <i class="fa-solid fa-server text-green-600 text-xl mr-3"></i>
+                <div>
+                    <div class="blade-title">Sentinel Management</div>
+                    <div class="text-xs text-gray-500">Configure Security Artifacts and Global Enclaves</div>
+                </div>
+            </div>
+            <button class="blade-close" onclick="closeBlade('sentinelBlade')"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div class="blade-content">
+            <h3 class="text-sm font-semibold mb-4">Custom Security Artifacts</h3>
+            <p class="text-xs text-gray-600 mb-4">Upload trusted knowledge artifacts (PDF, MD, txt) that the ANSS Watcher will use as verified ground-truth during contextual mediation.</p>
+            
+            <div class="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-blue-500 cursor-pointer mb-6" onclick="document.getElementById('artifactInput').click()">
+                <i class="fa-solid fa-cloud-arrow-up text-3xl text-gray-400 mb-2"></i>
+                <div class="text-sm text-gray-700">Click to upload security artifacts</div>
+                <div class="text-[10px] text-gray-400 mt-1">Accepts .pdf, .md, .txt (Max 10MB)</div>
+                <input type="file" id="artifactInput" class="hidden" onchange="uploadArtifact(this)" />
+            </div>
+
+            <div id="uploadStatus" class="hidden mb-6 p-3 rounded text-xs"></div>
+
+            <div class="border-t border-gray-200 pt-4">
+                <h3 class="text-sm font-semibold mb-2">Active Enclaves</h3>
+                <div class="flex items-center justify-between p-2 bg-gray-50 rounded mb-2">
+                    <div class="flex items-center">
+                        <i class="fa-solid fa-check-circle text-green-500 mr-2"></i>
+                        <span class="text-xs font-mono">anss-dtmc-validator-func</span>
+                    </div>
+                    <span class="text-[10px] bg-green-100 text-green-700 px-1 rounded">HEALTHY</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+
     <script>
         // Load policies on page load
         document.addEventListener('DOMContentLoaded', fetchPolicies);
+
+        let currentEditingPolicy = null;
 
         async function fetchPolicies() {
             try {
@@ -607,28 +690,96 @@
                 return;
             }
 
+            const labelMap = {
+                'user_guest': 'Guest User Identity',
+                'user_employee': 'Standard Employee',
+                'user_admin': 'Administrator',
+                'ai_agent_finance': 'Finance Assistant Agent',
+                'read_db': 'Read Database',
+                'invoke_transfer': 'Invoke Tool: Transfer Funds',
+                'invoke_delete': 'Invoke Tool: Delete Record'
+            };
+
             policies.forEach(policy => {
                 const row = document.createElement('div');
-                row.className = 'table-row';
+                row.className = 'table-row cursor-pointer hover:bg-gray-100 transition-colors';
+                row.onclick = () => editPolicy(policy.name);
+                
                 let iconClass = 'fa-file-code text-gray-500';
-                if (policy.action.includes('Transfer')) iconClass = 'fa-money-bill-transfer text-green-600';
-                if (policy.action.includes('Delete')) iconClass = 'fa-trash-can text-red-500';
-                if (policy.action.includes('Read')) iconClass = 'fa-database text-blue-500';
+                if (policy.action.includes('transfer')) iconClass = 'fa-money-bill-transfer text-green-600';
+                if (policy.action.includes('delete')) iconClass = 'fa-trash-can text-red-500';
+                if (policy.action.includes('read')) iconClass = 'fa-database text-blue-500';
+
+                const entityLabel = labelMap[policy.entity] || policy.entity;
+                const actionLabel = labelMap[policy.action] || policy.action;
 
                 row.innerHTML = `
                     <div class="col-check"><input type="checkbox"></div>
                     <div class="col-name flex items-center"><i class="fa-solid ${iconClass} mr-2"></i> ${policy.name}</div>
-                    <div class="col-type text-xs">${policy.entity}</div>
-                    <div class="col-location text-xs">${policy.action}</div>
-                    <div class="col-pricing font-mono text-purple-700 bg-purple-50 px-1 rounded">${policy.constraint}</div>
-                    <div class="col-status flex items-center text-green-600"><i class="fa-solid fa-check-circle mr-1"></i> ${policy.status}</div>
+                    <div class="col-type text-xs">${entityLabel}</div>
+                    <div class="col-location text-xs">${actionLabel}</div>
+                    <div class="col-pricing font-mono text-purple-700 bg-purple-50 px-1 rounded truncate max-w-[150px]">${policy.constraint}</div>
+                    <div class="col-status flex items-center text-green-600 px-2"><i class="fa-solid fa-check-circle mr-1"></i> ${policy.status}</div>
                     <div class="col-date text-xs text-gray-500">${policy.date}</div>
                 `;
+
                 container.appendChild(row);
             });
         }
 
+        async function editPolicy(name) {
+            try {
+                const response = await fetch(`/api/policies/${name}`);
+                const data = await response.json();
+                
+                // Populate the PCTL blade with existing content
+                currentEditingPolicy = name;
+                document.getElementById('pctlBlade').classList.add('open');
+                document.getElementById('overlay-pctlBlade').style.display = 'block';
+                
+                // Set raw content
+                document.getElementById('prismCodeBlock').innerText = data.content;
+                document.getElementById('prismOutput').style.display = 'block';
+                
+                // Sync dropdowns with persisted metadata
+                if (data.metadata) {
+                    const fields = {
+                        'entitySelect': data.metadata.entity,
+                        'actionSelect': data.metadata.action,
+                        'constraintSelect': data.metadata.constraint
+                    };
+
+                    for (const [id, val] of Object.entries(fields)) {
+                        if (!val) continue;
+                        const select = document.getElementById(id);
+                        
+                        // Try setting by value first
+                        select.value = val;
+                        
+                        // If it failed (blank), try searching options by text/label
+                        if (select.selectedIndex === -1) {
+                            for (let i = 0; i < select.options.length; i++) {
+                                if (select.options[i].text === val || select.options[i].text.includes(val)) {
+                                    select.selectedIndex = i;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+                
+            } catch (error) {
+                console.error("Failed to load policy for editing", error);
+            }
+        }
+
+
         function openBlade(id) {
+            if(id === 'pctlBlade') {
+                currentEditingPolicy = null;
+                document.getElementById('prismCodeBlock').innerText = '';
+                document.getElementById('prismOutput').style.display = 'none';
+            }
             document.getElementById('overlay-' + id).style.display = 'block';
             setTimeout(() => {
                 document.getElementById(id).classList.add('open');
@@ -642,8 +793,39 @@
                 if(id === 'pctlBlade') document.getElementById('prismOutput').style.display = 'none';
                 if(id === 'intentBlade') document.getElementById('intentOutput').style.display = 'none';
                 if(id === 'egressBlade') document.getElementById('egressOutput').style.display = 'none';
+                if(id === 'sentinelBlade') document.getElementById('uploadStatus').style.display = 'none';
             }, 300);
         }
+
+        async function uploadArtifact(input) {
+            const file = input.files[0];
+            if (!file) return;
+
+            const status = document.getElementById('uploadStatus');
+            status.innerHTML = `<i class="fa-solid fa-spinner fa-spin mr-2"></i> Uploading ${file.name}...`;
+            status.className = "mb-6 p-3 rounded text-xs bg-blue-50 text-blue-800 block";
+            status.style.display = 'block';
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                const response = await fetch('/api/artifacts/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+                if (response.ok) {
+                    status.innerHTML = `<i class="fa-solid fa-check-circle mr-2"></i> Successfully deployed ${file.name} to the Sentinel SecureRAG enclave.`;
+                    status.className = "mb-6 p-3 rounded text-xs bg-green-50 text-green-800 block";
+                } else {
+                    throw new Error("Upload failed");
+                }
+            } catch (error) {
+                status.innerHTML = `<i class="fa-solid fa-circle-exclamation mr-2"></i> Failed to upload artifact: ${error.message}`;
+                status.className = "mb-6 p-3 rounded text-xs bg-red-50 text-red-800 block";
+            }
+        }
+
 
         async function generatePrism() {
             const entitySelect = document.getElementById('entitySelect');
@@ -657,10 +839,20 @@
             const actionText = actionSelect.options[actionSelect.selectedIndex].text;
             const constraintText = constraint.split(' ')[0];
 
-            let targetStateLabel = ""; let policyName = "";
-            if (action === "invoke_transfer") { targetStateLabel = `"tool_transfer_funds"`; policyName = `dtmc_transfer_${Date.now().toString().slice(-4)}.prism`; }
-            if (action === "invoke_delete") { targetStateLabel = `"tool_delete_record"`; policyName = `dtmc_delete_${Date.now().toString().slice(-4)}.prism`; }
-            if (action === "read_db") { targetStateLabel = `"db_access_granted"`; policyName = `dtmc_read_${Date.now().toString().slice(-4)}.prism`; }
+            let targetStateLabel = ""; 
+            let policyName = currentEditingPolicy;
+            
+            if (!policyName) {
+                if (action === "invoke_transfer") { targetStateLabel = `"tool_transfer_funds"`; policyName = `dtmc_transfer_${Date.now().toString().slice(-4)}.prism`; }
+                if (action === "invoke_delete") { targetStateLabel = `"tool_delete_record"`; policyName = `dtmc_delete_${Date.now().toString().slice(-4)}.prism`; }
+                if (action === "read_db") { targetStateLabel = `"tool_read_db"`; policyName = `dtmc_read_${Date.now().toString().slice(-4)}.prism`; }
+            } else {
+                if (action === "invoke_transfer") targetStateLabel = `"tool_transfer_funds"`;
+                if (action === "invoke_delete") targetStateLabel = `"tool_delete_record"`;
+                if (action === "read_db") targetStateLabel = `"tool_read_db"`;
+            }
+
+            if (!policyName) policyName = `rule_${Date.now().toString().slice(-4)}.prism`;
 
             let pctlFormula = "";
             if (constraint === "P<=0") pctlFormula = `P<=0 [ F ${targetStateLabel} ]`;
@@ -689,20 +881,30 @@
             document.getElementById('prismCodeBlock').innerHTML = prismText;
             document.getElementById('prismOutput').style.display = 'block';
 
+            // Phase 6: Sync to backend for dynamic enforcement
+            const rawPrism = prismText.replace(/<[^>]*>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+
             try {
                 const response = await fetch('/api/policies', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ name: policyName, entity: entityText, action: actionText, constraint: constraintText })
+                    body: JSON.stringify({ 
+                        name: policyName, 
+                        content: rawPrism, 
+                        entity: entityText, 
+                        action: actionText, 
+                        constraint: constraintText 
+                    })
                 });
                 if (response.ok) fetchPolicies();
             } catch (error) { console.error("Failed to save policy", error); }
             
             setTimeout(() => {
                 const content = document.querySelector('#pctlBlade .blade-content');
-                content.scrollTo({ top: content.scrollHeight, behavior: 'smooth' });
+                if (content) content.scrollTo({ top: content.scrollHeight, behavior: 'smooth' });
             }, 50);
         }
+
 
         async function generateIntent() {
             const role = document.getElementById('intentRole').value;

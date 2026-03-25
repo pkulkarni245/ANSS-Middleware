@@ -1,0 +1,26 @@
+// REQUIREMENT: user_authenticated == true
+
+dtmc
+
+module transfer_policy
+    
+    // State definitions (0=Init, 1=Authorized, 2=Rejected, 3=Executed)
+    s : [0..3] init 0;
+    
+    // Context Properties (will be injected/overridden by stormpy constants)
+    const bool user_authenticated;
+
+    // Transition Matrix
+    // If not authenticated, probability 1.0 of going to rejected sink state
+    [] s=0 & !user_authenticated -> 1.0 : (s'=2);
+    // If authenticated, probability 1.0 of going to authorized state
+    [] s=0 & user_authenticated -> 1.0 : (s'=1);
+    
+    // From authorized, proceed to executed
+    [] s=1 -> 1.0 : (s'=3);
+    
+    // Sink states
+    [] s=2 -> 1.0 : (s'=2);
+    [] s=3 -> 1.0 : (s'=3);
+
+endmodule

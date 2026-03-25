@@ -2,10 +2,14 @@ dtmc
 
 module default_policy
     
-    // For any tool without a specific policy, default to allow.
+    // Base permissive policy for non-sensitive system tools.
+    // 0=Initial, 1=Authorized/Executed
     s : [0..1] init 0;
 
     [] s=0 -> 1.0 : (s'=1);
     [] s=1 -> 1.0 : (s'=1);
 
 endmodule
+
+// Formal Property: Always reach the allowed state with probability 1.0
+property allow_non_sensitive: P>=1 [ F (s=1) ];

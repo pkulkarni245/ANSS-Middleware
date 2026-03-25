@@ -1,6 +1,10 @@
 import os
 import re
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+import base64
+import hmac
+import hashlib
+import json
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, UploadFile, File
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
@@ -75,6 +79,13 @@ async def bot_ui():
 
 # --- Dynamic RAG API (Phase 2.3) ---
 
+class PolicyRequest(BaseModel):
+    name: str
+    content: str
+    entity: str
+    action: str
+    constraint: str
+
 class DocumentRequest(BaseModel):
     content: str
     is_poisoned: bool = False
@@ -101,6 +112,124 @@ async def get_rag_documents():
             return {"documents": docs}
     except FileNotFoundError:
         return {"documents": []}
+
+@app.post("/api/artifacts/upload")
+async def upload_artifact(file: UploadFile = File(...)):
+    """Handles the upload of custom security artifacts (PDF, MD, txt) for SecureRAG."""
+    os.makedirs("custom_artifacts", exist_ok=True)
+    file_path = os.path.join("custom_artifacts", file.filename)
+    with open(file_path, "wb") as buffer:
+        buffer.write(await file.read())
+    logger.info(f"New security artifact uploaded: {file.filename}")
+    return {"status": "success", "filename": file.filename, "path": file_path}
+
+class PolicyRequest(BaseModel):
+    name: str
+    content: str
+    entity: str = "Dynamic Role"
+    action: str = "Custom Action"
+    constraint: str = "PCTL Formal Property"
+
+@app.get("/api/policies")
+async def list_policies():
+    """Lists all active PCTL PRISM policies with persisted metadata."""
+    policies = []
+    if not os.path.exists("policies"):
+        return {"policies": []}
+    
+    import json
+    for filename in os.listdir("policies"):
+        if filename.endswith(".prism"):
+            file_path = os.path.join("policies", filename)
+            
+            # Smart defaults for pre-existing files mapping to UI values
+            def_entity = "user_guest"
+            def_action = "invoke_transfer"
+            if "delete" in filename:
+                def_entity = "user_admin"
+                def_action = "invoke_delete"
+            elif "read" in filename:
+                def_action = "read_db"
+            
+            meta = {
+                "name": filename,
+                "entity": def_entity,
+                "action": def_action,
+                "constraint": "P<=0",
+                "status": "Active",
+                "date": "2026-03-24"
+            }
+            
+            # Try to parse real metadata from the first line
+            try:
+                with open(file_path, "r", encoding="utf-8") as f:
+                    first_line = f.readline()
+                    if first_line.startswith("// metadata:"):
+                        json_str = first_line.replace("// metadata:", "").strip()
+                        meta.update(json.loads(json_str))
+            except Exception:
+                pass
+                
+            policies.append(meta)
+    return {"policies": policies}
+
+@app.post("/api/policies")
+async def create_policy(req: PolicyRequest):
+    """Deploys a new PCTL policy and persists its metadata."""
+    os.makedirs("policies", exist_ok=True)
+    file_path = os.path.join("policies", req.name)
+    
+    import json
+    meta_comment = f"// metadata: {json.dumps({'entity': req.entity, 'action': req.action, 'constraint': req.constraint})}\n"
+    
+    # Prepend metadata comment to the content
+    final_content = meta_comment + req.content
+    
+    with open(file_path, "w", encoding="utf-8") as f:
+        f.write(final_content)
+    
+    logger.info(f"New PCTL policy deployed with metadata: {req.name}")
+    return {"status": "success", "message": f"Policy {req.name} deployed successfully."}
+
+@app.get("/api/policies/{name}")
+async def get_policy(name: str):
+    """Fetches the raw content and metadata of a specific PRISM policy."""
+    file_path = os.path.join("policies", name)
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="Policy not found")
+    
+    import json
+    
+    # Smart defaults for pre-existing files
+    def_entity = "user_guest"
+    def_action = "invoke_transfer"
+    if "delete" in name:
+        def_entity = "user_admin"
+        def_action = "invoke_delete"
+    elif "read" in name:
+        def_action = "read_db"
+        
+    content = ""
+    metadata = {
+        "entity": def_entity,
+        "action": def_action,
+        "constraint": "P<=0"
+    }
+
+    with open(file_path, "r", encoding="utf-8") as f:
+        first_line = f.readline()
+        if first_line.startswith("// metadata:"):
+            try:
+                json_str = first_line.replace("// metadata:", "").strip()
+                metadata.update(json.loads(json_str))
+                content = f.read() # Read the rest
+            except Exception:
+                content = first_line + f.read() # Read all if parse fails
+        else:
+            content = first_line + f.read()
+
+    return {"name": name, "content": content, "metadata": metadata}
+
 
 
 class ChatRequest(BaseModel):
@@ -266,16 +395,28 @@ async def chat_endpoint(request: ChatRequest):
     # NEW Phase 5: Intent-Based Authorization (HMAC Verification)
     intent_payload = None
     if request.intent_manifest and request.intent_signature:
-        trace.append("[ANSS TELEMETRY] ──> [WATCHER: INTENT BINDING] ──> Validating HMAC-SHA256 Signature...")
-        manifest_bytes = base64.b64decode(request.intent_manifest)
-        expected_sig = hmac.new(GLOBAL_HMAC_SECRET, manifest_bytes, hashlib.sha256).hexdigest()
-        
-        if hmac.compare_digest(expected_sig, request.intent_signature):
-            intent_payload = json.loads(manifest_bytes.decode('utf-8'))
-            trace.append(f"[ANSS TELEMETRY] ──> [WATCHER: BINDING SUCCESS] ──> Role: {intent_payload.get('user_role', 'unknown')} | Allowed Tools: {intent_payload.get('allowed_tools', [])}")
-        else:
-            trace.append("[ANSS TELEMETRY] ──> [WATCHER: BINDING FAILED X] ──> Invalid HMAC Signature Detected! Halting.")
-            return {"response": "[SECURITY EXCEPTION] Invalid Intent Signature. Confused Deputy Prevention Triggered.", "telemetry": trace, "status": "blocked_intent"}
+        try:
+            trace.append("[ANSS TELEMETRY] ──> [WATCHER: INTENT BINDING] ──> Validating HMAC-SHA256 Signature...")
+            manifest_bytes = base64.b64decode(request.intent_manifest)
+            expected_sig = hmac.new(GLOBAL_HMAC_SECRET, manifest_bytes, hashlib.sha256).hexdigest()
+            
+            if hmac.compare_digest(expected_sig, request.intent_signature):
+                intent_payload = json.loads(manifest_bytes.decode('utf-8'))
+                
+                # Verify token expiration (60 minutes)
+                import time
+                iat = intent_payload.get("iat", 0)
+                if int(time.time()) - iat > 3600:
+                    trace.append("[ANSS TELEMETRY] ──> [WATCHER: BINDING FAILED X] ──> Intent Token Expired (TTL > 60m).")
+                    return {"response": "[SECURITY EXCEPTION] Intent Token Expired. Please re-generate your token.", "telemetry": trace, "status": "blocked_intent"}
+                
+                trace.append(f"[ANSS TELEMETRY] ──> [WATCHER: BINDING SUCCESS] ──> Role: {intent_payload.get('user_role', 'unknown')} | Allowed Tools: {intent_payload.get('allowed_tools', [])}")
+            else:
+                trace.append("[ANSS TELEMETRY] ──> [WATCHER: BINDING FAILED X] ──> Invalid HMAC Signature Detected! Halting.")
+                return {"response": "[SECURITY EXCEPTION] Invalid Intent Signature. Confused Deputy Prevention Triggered.", "telemetry": trace, "status": "blocked_intent"}
+        except Exception as e:
+            trace.append(f"[ANSS TELEMETRY] ──> [WATCHER: BINDING ERROR X] ──> Malformed Token Payload: {str(e)}")
+            return {"response": "[SECURITY EXCEPTION] Malformed Intent Manifest. Please re-generate your token.", "telemetry": trace, "status": "blocked_intent"}
     else:
         trace.append("[ANSS TELEMETRY] ──> [WATCHER: INTENT BINDING] ──> No Signed Intent Provided. Operating in Default Restricted Mode.")
         intent_payload = {"user_role": "anonymous", "allowed_tools": []}
@@ -514,17 +655,33 @@ async def websocket_chat_endpoint(websocket: WebSocket):
             # Phase 5: Intent-Based Authorization (HMAC Verification)
             intent_payload = None
             if intent_manifest and intent_signature:
-                trace.append("[ANSS TELEMETRY] ──> [WATCHER: INTENT BINDING] ──> Validating HMAC-SHA256 Signature...")
-                manifest_bytes = base64.b64decode(intent_manifest)
-                expected_sig = hmac.new(GLOBAL_HMAC_SECRET, manifest_bytes, hashlib.sha256).hexdigest()
-                
-                if hmac.compare_digest(expected_sig, intent_signature):
-                    intent_payload = json.loads(manifest_bytes.decode('utf-8'))
-                    trace.append(f"[ANSS TELEMETRY] ──> [WATCHER: BINDING SUCCESS] ──> Role: {intent_payload.get('user_role', 'unknown')} | Allowed Tools: {intent_payload.get('allowed_tools', [])}")
-                else:
-                    trace.append("[ANSS TELEMETRY] ──> [WATCHER: BINDING FAILED X] ──> Invalid HMAC Signature Detected! Halting.")
+                try:
+                    trace.append("[ANSS TELEMETRY] ──> [WATCHER: INTENT BINDING] ──> Validating HMAC-SHA256 Signature...")
+                    manifest_bytes = base64.b64decode(intent_manifest)
+                    expected_sig = hmac.new(GLOBAL_HMAC_SECRET, manifest_bytes, hashlib.sha256).hexdigest()
+                    
+                    if hmac.compare_digest(expected_sig, intent_signature):
+                        intent_payload = json.loads(manifest_bytes.decode('utf-8'))
+                        
+                        # Verify token expiration (60 minutes)
+                        import time
+                        iat = intent_payload.get("iat", 0)
+                        if int(time.time()) - iat > 3600:
+                            trace.append("[ANSS TELEMETRY] ──> [WATCHER: BINDING FAILED X] ──> Intent Token Expired (TTL > 60m).")
+                            await websocket.send_json({"type": "telemetry", "status": "blocked_intent", "telemetry": trace})
+                            await websocket.send_json({"type": "chunk", "content": "[SECURITY EXCEPTION] Intent Token Expired. Please re-generate your token."})
+                            continue
+                            
+                        trace.append(f"[ANSS TELEMETRY] ──> [WATCHER: BINDING SUCCESS] ──> Role: {intent_payload.get('user_role', 'unknown')} | Allowed Tools: {intent_payload.get('allowed_tools', [])}")
+                    else:
+                        trace.append("[ANSS TELEMETRY] ──> [WATCHER: BINDING FAILED X] ──> Invalid HMAC Signature Detected! Halting.")
+                        await websocket.send_json({"type": "telemetry", "status": "blocked_intent", "telemetry": trace})
+                        await websocket.send_json({"type": "chunk", "content": "[SECURITY EXCEPTION] Invalid Intent Signature. Confused Deputy Prevention Triggered."})
+                        continue
+                except Exception as e:
+                    trace.append(f"[ANSS TELEMETRY] ──> [WATCHER: BINDING ERROR X] ──> Malformed Token Payload: {str(e)}")
                     await websocket.send_json({"type": "telemetry", "status": "blocked_intent", "telemetry": trace})
-                    await websocket.send_json({"type": "chunk", "content": "[SECURITY EXCEPTION] Invalid Intent Signature. Confused Deputy Prevention Triggered."})
+                    await websocket.send_json({"type": "chunk", "content": "[SECURITY EXCEPTION] Malformed Intent Manifest. Please re-generate your token."})
                     continue
             else:
                 trace.append("[ANSS TELEMETRY] ──> [WATCHER: INTENT BINDING] ──> No Signed Intent Provided. Operating in Restricted Mode.")
@@ -877,11 +1034,13 @@ class IntentManifestRequest(BaseModel):
 async def generate_signed_intent(req: IntentManifestRequest):
     """
     Generates a cryptographically signed Intent Manifest.
-    This prevents the 'Confused Deputy' problem by binding tool execution to a verified signature.
+    Includes a timestamp (iat) to prevent replay attacks and ensure unique hashes.
     """
+    import time
     manifest = {
         "user_role": req.user_role,
-        "allowed_tools": req.allowed_tools
+        "allowed_tools": req.allowed_tools,
+        "iat": int(time.time()) # Issued At timestamp
     }
     manifest_bytes = json.dumps(manifest, sort_keys=True).encode('utf-8')
     signature = hmac.new(GLOBAL_HMAC_SECRET, manifest_bytes, hashlib.sha256).hexdigest()
