@@ -1,5 +1,17 @@
 # ANSS Verification Report
 
+## Comprehensive Feature List
+1. **Ingress Shield (Deterministic Jailbreak Detection)**: Employs an offline, deterministic SentenceTransformer (`all-MiniLM-L6-v2`) to compute cosine similarity against canonical attack templates. Immediate layer-1 blocking of prompt injection and jailbreaks.
+2. **Secure RAG (Verifiable Context Integrity)**: Implements semantic vector search combined with strict HMAC-SHA256 cryptographic verification of every retrieved document to prevent data poisoning.
+3. **PCTL Root of Trust (Markov Chain Execution Modeling)**: Models tool execution as a Discrete-Time Markov Chain (DTMC). Uses `stormpy` and PCTL formal verification to mathematically prove a tool's safety. Suspends and hard-blocks execution upon formal logic violation.
+4. **Symbolic Bridge (NLP-to-PRISM Synthesis)**: Translates natural language security intents into formal PRISM mathematics via an Azure Copilot metadata mapping layer.
+5. **Dynamic Intent Manifests (HMAC Signed Capabilities)**: Prevents Confused Deputy Attacks by issuing short-lived, cryptographically signed JSON Web Tokens (`X-Intent-Manifest`) that strictly bind downstream tool execution capabilities.
+6. **Semantic Egress Router (Data Leakage Prevention)**: Continuously models outgoing text generation as a DTMC, actively comparing text against sensitivity thresholds to intercept data leakage.
+7. **Verification Visualizer (Azure Portal CISO Mockup)**: Interactive dashboard with Mermaid.js state-space live rendering, enabling real-time visual auditing of formal safety proofs against dynamic session states.
+8. **Interactive Zero-Trust Chat Terminal**: A responsive chat interface showcasing real-time interception telemetry and architectural visualization pipelines.
+
+---
+
 **Date:** 2026-03-26  
 **Environment:** Local development (`http://localhost:8000`)  
 **Deployed URL:** `https://anss-middleware-svc123.azurewebsites.net`  
