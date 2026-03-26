@@ -682,6 +682,36 @@
                     <span class="text-[10px] bg-green-100 text-green-700 px-1 rounded">HEALTHY</span>
                 </div>
             </div>
+
+            <div class="border-t border-gray-200 pt-6 mt-6">
+                <h3 class="text-sm font-semibold mb-4">Live Security Context (Mock)</h3>
+                <p class="text-[10px] text-gray-500 mb-4">Manually override the AI's environmental context to test PCTL policy reactions in the demo environment.</p>
+                
+                <div class="space-y-4">
+                    <div class="flex items-center justify-between p-3 bg-blue-50 rounded-lg border border-blue-100">
+                        <div>
+                            <div class="text-xs font-bold text-blue-900">User Authenticated</div>
+                            <div class="text-[9px] text-blue-700">Toggles the 'user_authenticated' PCTL state</div>
+                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer">
+                            <input type="checkbox" id="authToggle" class="sr-only peer" onchange="updateSession('user_authenticated', this.checked)">
+                            <div class="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
+                        </label>
+                    </div>
+
+                    <div class="flex items-center justify-between p-3 bg-purple-50 rounded-lg border border-purple-100">
+                        <div>
+                            <div class="text-xs font-bold text-purple-900">Administrator Privileges</div>
+                            <div class="text-[9px] text-purple-700">Toggles the 'is_admin' PCTL state</div>
+                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer">
+                            <input type="checkbox" id="adminToggle" class="sr-only peer" onchange="updateSession('is_admin', this.checked)">
+                            <div class="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-purple-600"></div>
+                        </label>
+                    </div>
+                </div>
+            </div>
+
         </div>
     </div>
 
@@ -725,6 +755,20 @@
             } finally {
                 btn.innerHTML = originalHtml;
                 btn.disabled = false;
+            }
+        }
+
+        async function updateSession(key, value) {
+            try {
+                const response = await fetch('/api/session/state', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ key, value })
+                });
+                const data = await response.json();
+                console.log("Session Updated:", data.session);
+            } catch (error) {
+                console.error("Failed to update session state:", error);
             }
         }
 

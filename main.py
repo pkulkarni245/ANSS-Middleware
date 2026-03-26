@@ -1,4 +1,6 @@
 import os
+from typing import Any, Union
+
 import re
 import base64
 import hmac
@@ -79,12 +81,6 @@ async def bot_ui():
 
 # --- Dynamic RAG API (Phase 2.3) ---
 
-class PolicyRequest(BaseModel):
-    name: str
-    content: str
-    entity: str
-    action: str
-    constraint: str
 
 class DocumentRequest(BaseModel):
     content: str
@@ -172,6 +168,18 @@ async def copilot_generate_policy(req: CopilotRequest):
         "constraint": constraint,
         "explanation": f"Azure Copilot mapped intent: [{entity}] -> [{action}] with formal constraint [{constraint}]."
     }
+
+class SessionStateRequest(BaseModel):
+    key: str
+    value: Any
+
+@app.post("/api/session/state")
+async def update_session_state(req: SessionStateRequest):
+    """Updates the global security session state for PCTL context."""
+    PCTLSecurityMiddleware.set_state(req.key, req.value)
+    return {"status": "success", "session": PCTLSecurityMiddleware.get_state()}
+
+
 
 
 class PolicyRequest(BaseModel):
@@ -324,8 +332,8 @@ class FinanceTools:
         mock_args = sk_args.KernelArguments(amount=amount, destination=destination)
         
         # PCTL check bypasses async filter requirements by validating state directly
-        # The mock state is hardcoded in _evaluate_pctl_policy in agent_middleware.py
-        is_safe = middleware._evaluate_pctl_policy("transfer_funds", mock_args, {"user_authenticated": False, "intent": "transfer_funds"})
+        is_safe = middleware._evaluate_pctl_policy("transfer_funds", mock_args, middleware.get_state())
+
         
         if not is_safe:
              middleware._log_violation("transfer_funds", mock_args)
@@ -343,7 +351,8 @@ class FinanceTools:
         
         middleware = PCTLSecurityMiddleware()
         mock_args = sk_args.KernelArguments()
-        is_safe = middleware._evaluate_pctl_policy("get_account_balance", mock_args, {"user_authenticated": False, "intent": "get_account_balance"})
+        is_safe = middleware._evaluate_pctl_policy("get_account_balance", mock_args, middleware.get_state())
+
         
         if not is_safe:
              middleware._log_violation("get_account_balance", mock_args)
@@ -367,8 +376,8 @@ class AdminTools:
         middleware = PCTLSecurityMiddleware()
         mock_args = sk_args.KernelArguments(user_id=user_id)
         
-        # Mocking the context injection: user is NOT an admin
-        is_safe = middleware._evaluate_pctl_policy("delete_user_record", mock_args, {"is_admin": False, "intent": "delete_user_record"})
+        is_safe = middleware._evaluate_pctl_policy("delete_user_record", mock_args, middleware.get_state())
+
         
         if not is_safe:
              middleware._log_violation("delete_user_record", mock_args)
@@ -514,10 +523,22 @@ async def chat_endpoint(request: ChatRequest):
                 trace.append("[ANSS TELEMETRY] ──> [WATCHER: INTENT BOUNDARY] ──X Tool 'transfer_funds' not explicitly authorized by Signed Manifest.")
                 return {"response": "[SECURITY EXCEPTION] Confused Deputy Prevention. 'transfer_funds' lacks intent-based authorization.", "telemetry": trace, "status": "blocked_intent"}
             
+            from agent_middleware import PCTLSecurityMiddleware
+            current_session = PCTLSecurityMiddleware.get_state()
+            auth_status = "USER_AUTHENTICATED" if current_session.get("user_authenticated") else "!USER_AUTHENTICATED"
+            mfa_status = "& MFA_VERIFIED" if current_session.get("mfa_verified") else ""
+
             trace.append("[ANSS TELEMETRY] ──> [PCTL: INTERCEPTING 'transfer_funds']...")
-            trace.append("[ANSS TELEMETRY] ──> [PCTL: SYNTHESIZING MARKOV MODEL]")
-            trace.append("[ANSS TELEMETRY] ──> [PCTL: EVALUATING SPECIFICATION] ──> P>=1 [ F \"transfer_funds\" & !\"user_authenticated\" ]")
-            trace.append("[ANSS TELEMETRY] ──> [PCTL: MATHEMATICAL PROOF] ──> P = 1.0 (VIOLATION DETECTED)")
+            trace.append(f"[ANSS TELEMETRY] ──> [PCTL: EVALUATING SPECIFICATION] ──> P>=1 [ F \"transfer_funds\" & {auth_status} {mfa_status} ]")
+            
+            # PCTL Proof Mock-Trace (Dynamic based on state)
+            if not current_session.get("user_authenticated"):
+                trace.append("[ANSS TELEMETRY] ──> [PCTL: MATHEMATICAL PROOF] ──> Conflict Found: Path reaching 'transfer_funds' covers unauthenticated state.")
+                trace.append("[ANSS TELEMETRY] ──> [PCTL: VIOLATION DETECTED] ──> P = 0.0 (Requirement P>=1 Failed)")
+            else:
+                trace.append("[ANSS TELEMETRY] ──> [PCTL: MATHEMATICAL PROOF] ──> verified Path(Finance_Agent) -> transfer_funds.")
+                trace.append("[ANSS TELEMETRY] ──> [PCTL: PROOF SUCCESS] ──> P = 1.0 (Safety Property Satisfied)")
+
             
             # Robust amount extraction
             amounts = re.findall(r"\d+[\d,.]*", user_prompt)
@@ -531,15 +552,23 @@ async def chat_endpoint(request: ChatRequest):
             return {"response": mock_result, "telemetry": trace, "status": "success"}
             
         elif intent_id == 2: # Admin Intent
+            from agent_middleware import PCTLSecurityMiddleware
+            current_session = PCTLSecurityMiddleware.get_state()
+            admin_status = "IS_ADMIN" if current_session.get("is_admin") else "!IS_ADMIN"
+
             # Phase 5: Check allowed tools against signed manifest
             if "delete_user_record" not in intent_payload.get("allowed_tools", []) and "*" not in intent_payload.get("allowed_tools", []):
                 trace.append("[ANSS TELEMETRY] ──> [WATCHER: INTENT BOUNDARY] ──X Tool 'delete_user_record' not explicitly authorized by Signed Manifest.")
                 return {"response": "[SECURITY EXCEPTION] Confused Deputy Prevention. 'delete_user_record' lacks intent-based authorization.", "telemetry": trace, "status": "blocked_intent"}
+            
+            trace.append(f"[ANSS TELEMETRY] ──> [PCTL: EVALUATING SPECIFICATION] ──> P>=1 [ F \"delete_user_record\" & {admin_status} ]")
+            if not current_session.get("is_admin"):
+                 trace.append("[ANSS TELEMETRY] ──> [PCTL: VIOLATION DETECTED] ──> Identity does not satisfy Administrative Predicate.")
+            else:
+                 trace.append("[ANSS TELEMETRY] ──> [PCTL: PROOF SUCCESS] ──> Administrative Predicate Satisfied.")
 
             trace.append("[ANSS TELEMETRY] ──> [PCTL: INTERCEPTING 'delete_user_record']...")
             trace.append("[ANSS TELEMETRY] ──> [PCTL: SYNTHESIZING MARKOV MODEL]")
-            trace.append("[ANSS TELEMETRY] ──> [PCTL: EVALUATING SPECIFICATION] ──> P<=0 [ F \"tool_delete_user\" & !\"is_admin\" ]")
-            trace.append("[ANSS TELEMETRY] ──> [PCTL: MATHEMATICAL PROOF] ──> P = 1.0 (VIOLATION DETECTED)")
             
             # Simple extraction strategy for demo
             user_target = "unknown_user"
@@ -1034,59 +1063,8 @@ property block_unauthorized:
     return {"status": "success", "prism_model": prism_text}
 
 
-# --- NEW: Phase 3 Dynamic State Policies API ---
-
-# In-memory store for active PRISM policies (Dashboard Mockup)
-active_policies = [
-    {
-        "id": "policy-001",
-        "name": "dtmc_general_transfer.prism",
-        "entity": "Guest User Identity",
-        "action": "Invoke Tool: Transfer Funds",
-        "constraint": "P<=0",
-        "status": "Active",
-        "date": "2026-03-05T10:00:00Z"
-    },
-    {
-        "id": "policy-002",
-        "name": "dtmc_admin_delete.prism",
-        "entity": "Standard Employee",
-        "action": "Invoke Tool: Delete Record",
-        "constraint": "P<=0",
-        "status": "Active",
-        "date": "2026-03-12T09:15:30Z"
-    }
-]
-
-class PolicyRequest(BaseModel):
-    name: str
-    entity: str
-    action: str
-    constraint: str
-
-@app.get("/api/policies")
-async def get_policies():
-    """Retrieve all active synthesized PRISM policies."""
-    return {"policies": active_policies}
-
-@app.post("/api/policies")
-async def add_policy(policy: PolicyRequest):
-    """Mock endpoint: Azure Control Plane POSTs new PRISM state rule to the validator."""
-    import datetime
-    import uuid
-    new_policy = {
-        "id": f"policy-{str(uuid.uuid4())[:8]}",
-        "name": policy.name,
-        "entity": policy.entity,
-        "action": policy.action,
-        "constraint": policy.constraint,
-        "status": "Active",
-        "date": datetime.datetime.utcnow().isoformat() + "Z"
-    }
-    active_policies.append(new_policy)
-    return {"status": "success", "policy": new_policy}
-
 # --- Intent & Config APIs (Phase 5) ---
+
 import hmac
 import hashlib
 import json

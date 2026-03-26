@@ -12,6 +12,19 @@ class PCTLSecurityMiddleware:
     """
     The Root of Trust / Core Innovation for the ANSS Architecture.
     """
+    _session_state = {
+        "user_authenticated": False,
+        "mfa_verified": False,
+        "intent": "none"
+    }
+
+    @classmethod
+    def set_state(cls, key: str, value: Any):
+        cls._session_state[key] = value
+
+    @classmethod
+    def get_state(cls) -> dict:
+        return cls._session_state
 
     async def invoke_function(self, function: KernelFunction, context: Any, arguments: KernelArguments) -> FunctionResult:
         """
@@ -21,14 +34,15 @@ class PCTLSecurityMiddleware:
         tool_name = function.name
         tool_args = arguments
 
-        # Example execution context (in a real scenario, this state is maintained across turns)
-        current_state = {
-            "user_authenticated": False, # Mock state: user has NOT authenticated
-            "intent": tool_name
-        }
+        tool_args = arguments
+
+        # Dynamic execution context pulled from the Session Control Plane
+        current_state = self.get_state()
+        current_state["intent"] = tool_name
 
         # Formal Verification via PCTL Model Checking (Phase 6: Dynamic Disk-Based)
         is_safe = self._evaluate_pctl_policy(tool_name, tool_args, current_state)
+
 
         if not is_safe:
             self._log_violation(tool_name, tool_args)
