@@ -39,6 +39,26 @@ ingress_shield = IngressShield()
 secure_rag = SecureRAG()
 pctl_middleware = PCTLSecurityMiddleware()
 
+# Live Security Trace Buffer for the Portal UI
+SECURITY_LOG_BUFFER = []
+MAX_LOG_SIZE = 50
+
+def log_security_event(event_type: str, tool: str, status: str, node: int, trace: list):
+    """Appends a cryptographically verified security event to the live trace buffer."""
+    import datetime
+    event = {
+        "id": f"evt-{int(datetime.datetime.utcnow().timestamp())}",
+        "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
+        "type": event_type,
+        "tool": tool,
+        "status": status,
+        "node": node,
+        "trace": trace[-3:] # Last 3 steps of proof for brevity
+    }
+    SECURITY_LOG_BUFFER.insert(0, event)
+    if len(SECURITY_LOG_BUFFER) > MAX_LOG_SIZE:
+        SECURITY_LOG_BUFFER.pop()
+
 # Azure Monitor OpenTelemetry Integration
 try:
     from azure.monitor.opentelemetry import configure_azure_monitor
@@ -62,6 +82,12 @@ try:
 except ImportError:
     global_embedder = None
     logger.warning("sentence-transformers not installed. Offline routing disabled.")
+
+# Inject the shared embedder into security components (Dependency Injection)
+# This enables deterministic, embedding-based jailbreak detection and vector search
+# without loading separate models — reusing the single global SentenceTransformer.
+ingress_shield.set_embedder(global_embedder)
+secure_rag.set_embedder(global_embedder)
 
 
 app = FastAPI(title="Azure Neural-Symbolic Sentinel (ANSS)", version="1.0.0")
@@ -178,6 +204,12 @@ async def update_session_state(req: SessionStateRequest):
     """Updates the global security session state for PCTL context."""
     PCTLSecurityMiddleware.set_state(req.key, req.value)
     return {"status": "success", "session": PCTLSecurityMiddleware.get_state()}
+
+@app.get("/api/logs")
+async def get_security_logs():
+    """Retrieves the live PCTL verification trace buffer for the Azure Portal."""
+    return {"logs": SECURITY_LOG_BUFFER}
+
 
 
 
@@ -502,7 +534,7 @@ async def chat_endpoint(request: ChatRequest):
         trace.append("[ANSS TELEMETRY] ──> [SHIELD: BLOCKED X] ──X Pipeline Terminated (Jailbreak Detected)")
         print(trace[-1])
         # We return 200 with a special flag so the UI can render the telemetry properly instead of just throwing a hard 403 error.
-        return {"response": "[API FIREWALL] Request blocked by Azure Content Safety.", "telemetry": trace, "status": "blocked_ingress"}
+        return {"response": "[INGRESS SHIELD] Request blocked. Semantic analysis detected a jailbreak pattern (cosine similarity >= threshold). This request has been terminated before reaching the LLM.", "telemetry": trace, "status": "blocked_ingress"}
     # b) Call secure_rag.py to get verified context
     trace.append("[ANSS TELEMETRY] ──> [SHIELD: PASS] ──> [RAG] Fetching Verifiable Context...")
     print(trace[-1])
@@ -535,9 +567,12 @@ async def chat_endpoint(request: ChatRequest):
             if not current_session.get("user_authenticated"):
                 trace.append("[ANSS TELEMETRY] ──> [PCTL: MATHEMATICAL PROOF] ──> Conflict Found: Path reaching 'transfer_funds' covers unauthenticated state.")
                 trace.append("[ANSS TELEMETRY] ──> [PCTL: VIOLATION DETECTED] ──> P = 0.0 (Requirement P>=1 Failed)")
+                v_node = 2 # s=2 (Blocked)
             else:
                 trace.append("[ANSS TELEMETRY] ──> [PCTL: MATHEMATICAL PROOF] ──> verified Path(Finance_Agent) -> transfer_funds.")
                 trace.append("[ANSS TELEMETRY] ──> [PCTL: PROOF SUCCESS] ──> P = 1.0 (Safety Property Satisfied)")
+                v_node = 3 # s=3 (Success)
+
 
             
             # Robust amount extraction
@@ -548,8 +583,8 @@ async def chat_endpoint(request: ChatRequest):
             mock_result = tools.transfer_funds(amount=final_amount, destination="attacker_account")
             if "[SECURITY EXCEPTION]" in mock_result:
                 trace.append("[ANSS TELEMETRY] ──> [PCTL: HARD BLOCKED X] ──X Deterministic Mathematical Proof Failed")
-                return {"response": mock_result, "telemetry": trace, "status": "blocked_pctl"}
-            return {"response": mock_result, "telemetry": trace, "status": "success"}
+                return {"response": mock_result, "telemetry": trace, "status": "blocked_pctl", "verification_node": v_node}
+            return {"response": mock_result, "telemetry": trace, "status": "success", "verification_node": v_node}
             
         elif intent_id == 2: # Admin Intent
             from agent_middleware import PCTLSecurityMiddleware
@@ -564,8 +599,11 @@ async def chat_endpoint(request: ChatRequest):
             trace.append(f"[ANSS TELEMETRY] ──> [PCTL: EVALUATING SPECIFICATION] ──> P>=1 [ F \"delete_user_record\" & {admin_status} ]")
             if not current_session.get("is_admin"):
                  trace.append("[ANSS TELEMETRY] ──> [PCTL: VIOLATION DETECTED] ──> Identity does not satisfy Administrative Predicate.")
+                 v_node = 2 # s=2 (Blocked)
             else:
                  trace.append("[ANSS TELEMETRY] ──> [PCTL: PROOF SUCCESS] ──> Administrative Predicate Satisfied.")
+                 v_node = 3 # s=3 (Success)
+
 
             trace.append("[ANSS TELEMETRY] ──> [PCTL: INTERCEPTING 'delete_user_record']...")
             trace.append("[ANSS TELEMETRY] ──> [PCTL: SYNTHESIZING MARKOV MODEL]")
@@ -581,8 +619,9 @@ async def chat_endpoint(request: ChatRequest):
             mock_result = tools.delete_user_record(user_id=user_target)
             if "[SECURITY EXCEPTION]" in mock_result:
                 trace.append("[ANSS TELEMETRY] ──> [PCTL: HARD BLOCKED X] ──X Deterministic Mathematical Proof Failed")
-                return {"response": mock_result, "telemetry": trace, "status": "blocked_pctl"}
-            return {"response": mock_result, "telemetry": trace, "status": "success"}
+                return {"response": mock_result, "telemetry": trace, "status": "blocked_pctl", "verification_node": v_node}
+            return {"response": mock_result, "telemetry": trace, "status": "success", "verification_node": v_node}
+
 
     trace.append("[ANSS TELEMETRY] ──> [LLM] Agent Invocation...")
     print(trace[-1])

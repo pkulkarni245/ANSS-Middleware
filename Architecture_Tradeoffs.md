@@ -28,25 +28,29 @@ We implemented formal Probabilistic Computation Tree Logic (PCTL) model checking
 
 ---
 
-## 3. Azure AI Content Safety as an Ingress API Firewall
+## 3. Embedding-Based Ingress Shield vs. Azure AI Content Safety
 
 ### The Decision
-We placed Azure AI Content Safety (Prompt Shields) at the very edge of the network, before the request even hits the Orchestrator's internal RAG pipeline or the LLM.
+We implemented a **deterministic SentenceTransformer cosine similarity** detector as the primary jailbreak shield, with Azure AI Content Safety as a secondary layer when available.
 
 ### Tradeoffs
-*   **Pros (Defense-in-Depth):** This acts as an early-termination filter. By blocking obvious jailbreaks or toxic content immediately (`403 Forbidden`), we save compute cycles, reduce API costs for the LLM, and prevent the malicious payload from ever entering the vulnerable context window.
-*    **Cons (False Positives & API Latency):** The Content Safety API requires an additional outbound HTTP request, adding ~100-200ms of latency to the total Round Trip Time (RTT). Furthermore, strict deterministic filters can occasionally flag legitimate, benign queries that use aggressive phrasing as false positives, degrading the UX.
+*   **Pros (Determinism & Offline Operation):** The embedding model (`all-MiniLM-L6-v2`) produces identical vectors for identical inputs — making detection fully reproducible and auditable. It works offline without any API calls, eliminating external latency and dependency on Azure Content Safety availability.
+*   **Pros (Why NOT an LLM):** Using a generative LLM to evaluate "is this a jailbreak?" would be circular — the very thing we are trying to protect against (probabilistic reasoning) would be used for protection. An encoder model is a fixed function, not a generative one.
+*   **Cons (Adversarial Robustness):** Cosine similarity can be evaded by sufficiently novel attack vectors that are semantically distant from the 15 canonical templates. The threshold (0.65) is a tunable parameter — lowering it catches more attacks but increases false positives.
+*   **Mitigation:** The PCTL Root of Trust acts as the deterministic backstop. Even if a jailbreak bypasses the Ingress Shield, the formal math blocks unauthorized tool execution.
 
 ---
 
-## 4. Cryptographic RAG Verification vs. Standard VDB Retrieval
+## 4. Vector Search RAG with Cryptographic Verification vs. Static Retrieval
 
 ### The Decision
-We implemented `secure_rag.py` to dynamically verify the HMAC signatures of documents retrieved from Azure AI Search against keys stored in Azure Key Vault.
+We implemented `secure_rag.py` with a **two-layer verification pipeline**: (1) Semantic vector search via SentenceTransformer cosine similarity to rank document relevance, followed by (2) HMAC-SHA256 signature verification against a trusted secret key.
 
 ### Tradeoffs
-*   **Pros (Trust Boundary):** This neutralizes Data Poisoning attacks. If an attacker injects a malicious invisible prompt into a PDF stored in the vector database, the lack of a valid HMAC signature will flag it, and the architecture will drop the poisoned context before feeding it to the LLM.
-*   **Cons (Ingestion Complexity):** This requires a much more complex data ingestion pipeline. Every legitimate document uploaded to the system *must* have its hash calculated, signed via Key Vault, and stored as metadata in the search index before it can be used. It makes updating knowledge bases significantly harder.
+*   **Pros (Semantic Precision + Trust):** Vector search returns documents ranked by actual relevance (not keyword matching), while HMAC verification cryptographically guarantees data integrity. Poisoned documents are dropped even if they are semantically relevant.
+*   **Pros (Shared Infrastructure):** The same `all-MiniLM-L6-v2` model used by the Ingress Shield and the semantic router is reused for RAG — no additional model loading or memory overhead.
+*   **Cons (Ingestion Complexity):** Every legitimate document must have its HMAC signature pre-computed at ingestion time. Updating the knowledge base requires re-signing documents.
+*   **Cons (Scale Limitation):** Local in-memory vector search with cosine similarity is O(n) per query. For production scale (>10K documents), this should migrate to Azure AI Search with hybrid vector+keyword retrieval.
 
 ---
 
@@ -72,3 +76,29 @@ For the **Azure Copilot** feature (which translates natural language into formal
 *   **Pros (Demo Reliability & Cost):** It bypasses the Azure for Students quota limits for Azure OpenAI model throughput, guaranteeing instantaneous and mathematically exact `Entity -> Action -> Constraint` translations during live judging without the risk of API timeouts or hallucinations mid-demo.
 *   **Cons (Rigidity):** It is inherently bounded by the heuristic/semantic logic mapped in the python endpoint. It lacks the true generative fluidity to understand drastically abstract commands.
 *   **Mitigation (Production):** A production implementation will wire this directly to an advanced semantic router powered by `gpt-4o` with strict `Instructor` or DSPy JSON schemas, fully synthesizing the `.prism` file using formal generation logic rather than exact keyword mapping.
+
+---
+
+## 7. Shared Embedder via Dependency Injection
+
+### The Decision
+All three embedding-dependent components (Ingress Shield, Secure RAG, Semantic Router) share a **single global `SentenceTransformer` instance** injected from `main.py` at startup.
+
+### Tradeoffs
+*   **Pros (Resource Efficiency):** Loading `all-MiniLM-L6-v2` once (~90MB) instead of three times saves ~180MB of RAM and eliminates redundant model download/initialization during cold starts.
+*   **Pros (Consistency):** All components operate on the same vector space, ensuring that similarity scores are comparable across modules.
+*   **Cons (Coupling):** If the embedder fails to load (e.g., missing `sentence-transformers` package), all three components degrade simultaneously.
+*   **Mitigation:** Each component implements a keyword-based fallback for graceful degradation.
+
+---
+
+## 8. Visual Verification: Mermaid.js vs. External Visualization Tools
+
+### The Decision
+We chose to render security proof state-machines using **inline Mermaid.js** within the Azure Portal HTML, rather than using external tools like D3.js or Graphviz.
+
+### Tradeoffs
+*   **Pros (Zero Dependencies):** Mermaid.js loads from CDN, requires no build step, and integrates directly with the existing Tailwind CSS / Fluent UI portal.
+*   **Pros (Auditability):** The generated diagram is a text string that can be logged, versioned, and audited alongside the PRISM policy.
+*   **Cons (Interactivity):** Mermaid.js diagrams are static SVGs. They lack the interactive pan/zoom/animate capabilities of D3.js for very large state spaces.
+*   **Mitigation:** For the demo scope (4-node DTMCs), Mermaid.js is more than sufficient. Production migration could add Cytoscape.js for interactive exploration.

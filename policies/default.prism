@@ -1,15 +1,19 @@
+// metadata: {"entity": "Guest User Identity", "action": "Invoke Tool: Get Account Balance", "constraint": "P<=0"}
 dtmc
-
-module default_policy
-    
-    // Base permissive policy for non-sensitive system tools.
-    // 0=Initial, 1=Authorized/Executed
-    s : [0..1] init 0;
-
-    [] s=0 -> 1.0 : (s'=1);
-    [] s=1 -> 1.0 : (s'=1);
-
+module security_policy
+    // State definitions (0=Init, 1=Authorized, 2=Rejected, 3=Executed)
+    s : [0..3] init 0;
+    // Dynamic Context Properties Injected by Azure Entra ID mapping
+    const bool is_entity_user_guest = true;
+    const bool requests_get_account_balance = true;
+    // Transition Matrix
+    [] s=0 & is_entity_user_guest & requests_get_account_balance -> 1.0 : (s'=2); // Deterministic denial
+    [] s=0 & !is_entity_user_guest -> 1.0 : (s'=1); // Allow normal flow
+    [] s=1 -> 1.0 : (s'=3); // Execute tool
+    [] s=2 -> 1.0 : (s'=2); // Sink state (Blocked by ANSS)
+    [] s=3 -> 1.0 : (s'=3); // Sink state (Executed)
 endmodule
-
-// Formal Property: Always reach the allowed state with probability 1.0
-property allow_non_sensitive: P>=1 [ F (s=1) ];
+// Formal Property Specification (PCTL)
+label "tool_get_account_balance" = (s=3);
+property block_unauthorized: 
+    P<=0 [ F "tool_get_account_balance" ];
