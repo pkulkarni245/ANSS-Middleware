@@ -162,6 +162,13 @@
             width: 180px;
         }
 
+        .col-actions {
+            width: 80px;
+            display: flex;
+            gap: 8px;
+            justify-content: center;
+        }
+
         /* Blade Styles */
         .blade-overlay {
             position: fixed;
@@ -436,8 +443,9 @@
                     <div class="col-location">Action Guarded</div>
                     <div class="col-pricing">PCTL Rule</div>
                     <div class="col-status">Status</div>
-                    <div class="col-date">Compiled Date</div>
-                </div>
+                <div class="col-date">Last modified</div>
+                <div class="col-actions">Actions</div>
+            </div>
 
                 <div id="policyGridContainer">
                     <!-- Rows will be populated by JavaScript -->
@@ -720,6 +728,25 @@
             }
         }
 
+        async function deletePolicy(name) {
+            if (!confirm(`Are you sure you want to delete the policy "${name}"?`)) return;
+
+            try {
+                const response = await fetch(`/api/policies/${name}`, {
+                    method: 'DELETE'
+                });
+                const data = await response.json();
+                if (data.status === 'success') {
+                    fetchPolicies();
+                } else {
+                    alert('Error deleting policy: ' + (data.detail || data.message));
+                }
+            } catch (error) {
+                console.error('Error deleting policy:', error);
+                alert('Failed to delete policy.');
+            }
+        }
+
         async function fetchPolicies() {
             try {
                 const response = await fetch('/api/policies');
@@ -770,8 +797,15 @@
                     <div class="col-type text-xs">${entityLabel}</div>
                     <div class="col-location text-xs">${actionLabel}</div>
                     <div class="col-pricing font-mono text-purple-700 bg-purple-50 px-1 rounded truncate max-w-[150px]">${policy.constraint}</div>
-                    <div class="col-status flex items-center text-green-600 px-2"><i class="fa-solid fa-check-circle mr-1"></i> ${policy.status}</div>
+                    <div class="col-status">
+                        <span class="status-pill status-active">Active</span>
+                    </div>
                     <div class="col-date text-xs text-gray-500">${policy.date}</div>
+                    <div class="col-actions">
+                        <button class="text-gray-400 hover:text-red-500 transition-colors" onclick="event.stopPropagation(); deletePolicy('${policy.name}')" title="Delete Policy">
+                            <i class="fa-solid fa-trash-can"></i>
+                        </button>
+                    </div>
                 `;
 
                 container.appendChild(row);

@@ -153,12 +153,17 @@ async def copilot_generate_policy(req: CopilotRequest):
         action = "invoke_delete"
         
     # Constraint heuristics
-    if "allow" in p or "permit" in p or ("can" in p and "cannot" not in p and "can't" not in p):
+    negation_words = ["not", "never", "disallow", "stop", "block", "deny", "cannot", "can't", "don't", "shouldn't", "forbidden"]
+    is_negated = any(word in p for word in negation_words)
+    
+    if is_negated:
+        constraint = "P<=0"
+    elif "allow" in p or "permit" in p or "can" in p:
         constraint = "P>=1"
     elif "maybe" in p or "probable" in p or "audit" in p:
         constraint = "P>0.95"
     else:
-        # Default to deny if words like stop, block, deny, cannot, don't, shouldn't are found
+        # Default fallback
         constraint = "P<=0"
         
     return {
@@ -245,8 +250,7 @@ async def get_policy(name: str):
         raise HTTPException(status_code=404, detail="Policy not found")
     
     import json
-    
-    # Smart defaults for pre-existing files
+    # Smart defaults for pre-existing files mapping to UI values
     def_entity = "user_guest"
     def_action = "invoke_transfer"
     if "delete" in name:
@@ -275,6 +279,22 @@ async def get_policy(name: str):
             content = first_line + f.read()
 
     return {"name": name, "content": content, "metadata": metadata}
+
+@app.delete("/api/policies/{name}")
+async def delete_policy(name: str):
+    """Deletes a specific PCTL policy file from disk."""
+    file_path = os.path.join("policies", name)
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="Policy not found")
+    
+    try:
+        os.remove(file_path)
+        logger.info(f"PCTL policy deleted: {name}")
+        return {"status": "success", "message": f"Policy {name} deleted successfully."}
+    except Exception as e:
+        logger.error(f"Error deleting policy {name}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error deleting policy: {str(e)}")
+
 
 
 
