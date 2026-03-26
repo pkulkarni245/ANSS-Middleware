@@ -163,12 +163,12 @@ pip install -r requirements.txt
 
 ### 3. Run the Server
 ```bash
-python -m uvicorn main:app --host 0.0.0.0 --port 80
+python -m uvicorn main:app --host 0.0.0.0 --port 8000
 ```
 
 Then open:
-- **Azure Portal Mockup:** [http://localhost/](http://localhost/)
-- **Chatbot UI:** [http://localhost/bot](http://localhost/bot)
+- **Azure Portal Mockup:** [http://localhost:8000/](http://localhost:8000/)
+- **Chatbot UI:** [http://localhost:8000/bot](http://localhost:8000/bot)
 
 ---
 
