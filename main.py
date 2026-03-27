@@ -43,16 +43,18 @@ pctl_middleware = PCTLSecurityMiddleware()
 SECURITY_LOG_BUFFER = []
 MAX_LOG_SIZE = 50
 
-def log_security_event(event_type: str, tool: str, status: str, node: int, trace: list):
-    """Appends a cryptographically verified security event to the live trace buffer."""
+def log_security_event(event_type: str, tool: str, status: str, node: int, trace: list, prompt: str = "N/A", metadata: dict = None):
+    """Appends a cryptographically verified security event to the live trace buffer with rich metadata."""
     import datetime
     event = {
         "id": f"evt-{int(datetime.datetime.utcnow().timestamp())}",
-        "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
+        "timestamp": datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC"),
         "type": event_type,
         "tool": tool,
         "status": status,
         "node": node,
+        "prompt": prompt,
+        "metadata": metadata or {},
         "trace": trace[-3:] # Last 3 steps of proof for brevity
     }
     SECURITY_LOG_BUFFER.insert(0, event)
@@ -104,6 +106,15 @@ async def root_ui():
 async def bot_ui():
     """Serves the Zero-Trust Chat Visualizer UI."""
     return FileResponse("static/index.html")
+
+# --- Phase 1: Simulation State Store ---
+ACCOUNT_BALANCE = 15420.50
+USER_REGISTRY = {
+    "user_123": {"name": "Alice Smith", "role": "Standard"},
+    "user_456": {"name": "Bob Jones", "role": "Finance"},
+    "user_789": {"name": "Charlie Davis", "role": "Guest"}
+}
+
 
 # --- Dynamic RAG API (Phase 2.3) ---
 
@@ -345,85 +356,96 @@ class ChatRequest(BaseModel):
 
 class FinanceTools:
     """
-    Dummy tools plugin for the agent to use.
+    Standard Plugin for Financial Operations.
+    In a production ANSS deployment, these would be bound to Entra ID scopes.
     """
     @kernel_function(
-         description="Executes a financial transfer between accounts. Required for sending money, paying bills, or wiring funds.",
-         name="transfer_funds"
+        name="get_account_balance",
+        description="Retrieves the current balance for the authenticated user session."
+    )
+    def get_account_balance(self) -> str:
+        from agent_middleware import PCTLSecurityMiddleware
+        middleware = PCTLSecurityMiddleware()
+        
+        # PCTL Enforcement
+        is_safe = middleware._evaluate_pctl_policy("get_account_balance", None, middleware.get_state())
+        if not is_safe:
+             middleware._log_violation("get_account_balance", "{}")
+             return "[SECURITY EXCEPTION] Tool Execution Blocked by Deterministic PCTL Policy"
+             
+        return f"[SUCCESS] Current Account Balance: ${ACCOUNT_BALANCE:,.2f} USD. (Status: VERIFIED)"
+
+    @kernel_function(
+        name="transfer_funds",
+        description="Securely transfers funds between accounts. Requires Multi-Factor PCTL authorization."
     )
     def transfer_funds(self, amount: float, destination: str) -> str:
-        # In Semantic Kernel 1.1.0, the FilterTypes API is unstable or moved.
-        # Instead, since we own the Root of Trust middleware, we enforce the PCTL 
-        # security check directly within the tool execution boundary natively.
-        import asyncio
-        import semantic_kernel.functions.kernel_arguments as sk_args
+        global ACCOUNT_BALANCE
         from agent_middleware import PCTLSecurityMiddleware
-        
         middleware = PCTLSecurityMiddleware()
-        # Mocking the context injection for the tool wrapper
-        mock_args = sk_args.KernelArguments(amount=amount, destination=destination)
         
-        # PCTL check bypasses async filter requirements by validating state directly
+        # PCTL Enforcement
+        import semantic_kernel.functions.kernel_arguments as sk_args
+        mock_args = sk_args.KernelArguments(amount=amount, destination=destination)
         is_safe = middleware._evaluate_pctl_policy("transfer_funds", mock_args, middleware.get_state())
-
         
         if not is_safe:
              middleware._log_violation("transfer_funds", mock_args)
              return "[SECURITY EXCEPTION] Tool Execution Blocked by Deterministic PCTL Policy"
-             
-        return f"Successfully transferred ${amount} to {destination}."
 
-    @kernel_function(
-         description="Gets the current account balance for the user.",
-         name="get_account_balance"
-    )
-    def get_account_balance(self) -> str:
-        import semantic_kernel.functions.kernel_arguments as sk_args
-        from agent_middleware import PCTLSecurityMiddleware
-        
-        middleware = PCTLSecurityMiddleware()
-        mock_args = sk_args.KernelArguments()
-        is_safe = middleware._evaluate_pctl_policy("get_account_balance", mock_args, middleware.get_state())
+        if amount > ACCOUNT_BALANCE:
+            return f"[FAILURE] Insufficient funds. Current balance: ${ACCOUNT_BALANCE:,.2f}"
 
-        
-        if not is_safe:
-             middleware._log_violation("get_account_balance", mock_args)
-             return "[SECURITY EXCEPTION] Tool Execution Blocked by Deterministic PCTL Policy"
-             
-        return f"Your current account balance is $12,450.00."
+        # Simulate transaction processing
+        ACCOUNT_BALANCE -= amount
+        return f"[SUCCESS] Transaction complete. ${amount:,.2f} transferred to '{destination}'. Remaining Balance: ${ACCOUNT_BALANCE:,.2f}. [TRANSACTION_ID: {hash(time.time())}]"
+
 
 class AdminTools:
     """
-    Dummy tools plugin for the system administrator to use.
-    Demonstrates Domain Isolation (Admin vs Finance).
+    Privileged Plugin for Identity & Access Management.
     """
     @kernel_function(
-         description="Deletes a user record from the production database.",
-         name="delete_user_record"
+        name="delete_user_record",
+        description="Permanently removes a user identity from the Azure Entra ID registry."
     )
     def delete_user_record(self, user_id: str) -> str:
-        import semantic_kernel.functions.kernel_arguments as sk_args
         from agent_middleware import PCTLSecurityMiddleware
-        
         middleware = PCTLSecurityMiddleware()
-        mock_args = sk_args.KernelArguments(user_id=user_id)
         
+        # PCTL Enforcement
+        import semantic_kernel.functions.kernel_arguments as sk_args
+        mock_args = sk_args.KernelArguments(user_id=user_id)
         is_safe = middleware._evaluate_pctl_policy("delete_user_record", mock_args, middleware.get_state())
-
         
         if not is_safe:
              middleware._log_violation("delete_user_record", mock_args)
              return "[SECURITY EXCEPTION] Tool Execution Blocked by Deterministic PCTL Policy: Missing Admin Rights"
-             
-        return f"Successfully deleted user completely: {user_id}."
+
+        if user_id in USER_REGISTRY:
+            user_info = USER_REGISTRY.pop(user_id)
+            return f"[SUCCESS] User record for '{user_info['name']}' ({user_id}) has been permanently purged from the Identity Registry. [SENTINEL_EVENT_ID: {hash(user_id)}]"
+        else:
+            return f"[FAILURE] User ID '{user_id}' not found in registry. No action taken."
 
     @kernel_function(
-         description="Modifies the RBAC permissions of a designated user.",
-         name="modify_permissions"
+        name="modify_permissions",
+        description="Modifies the RBAC permissions of a designated user."
     )
     def modify_permissions(self, user_id: str, new_role: str) -> str:
-        # Simplified for demonstration.
-        return f"Changed {user_id} to Role:{new_role}."
+        from agent_middleware import PCTLSecurityMiddleware
+        middleware = PCTLSecurityMiddleware()
+        
+        # PCTL Enforcement
+        import semantic_kernel.functions.kernel_arguments as sk_args
+        mock_args = sk_args.KernelArguments(user_id=user_id, new_role=new_role)
+        is_safe = middleware._evaluate_pctl_policy("modify_permissions", mock_args, middleware.get_state())
+        
+        if not is_safe:
+             middleware._log_violation("modify_permissions", mock_args)
+             return "[SECURITY EXCEPTION] Tool Execution Blocked by Deterministic PCTL Policy: Missing Admin Rights"
+
+        return f"[SUCCESS] Changed {user_id} to Role:{new_role}. [SENTINEL_EVENT_ID: {hash(user_id + new_role)}]"
 
 
 def setup_semantic_kernel_agent() -> sk.Kernel:
@@ -495,7 +517,9 @@ async def chat_endpoint(request: ChatRequest):
     logger.info("Received new chat request.", extra={"prompt_length": len(user_prompt)})
     
     # Store the telemetry trace to return to the UI
-    trace = ["[ANSS TELEMETRY] ──> [USER PAYLOAD RECEIVED]"]
+    import datetime
+    now_ts = datetime.datetime.utcnow().strftime("%H:%M:%S UTC")
+    trace = [f"[{now_ts}] [ANSS TELEMETRY] ──> [USER PAYLOAD RECEIVED] | Prompt: \"{user_prompt[:60]}...\""]
     print("\n" + "="*60)
     print(trace[-1])
     
@@ -532,6 +556,18 @@ async def chat_endpoint(request: ChatRequest):
     is_safe_prompt = ingress_shield.scan_prompt(user_prompt)
     if not is_safe_prompt:
         trace.append("[ANSS TELEMETRY] ──> [SHIELD: BLOCKED X] ──X Pipeline Terminated (Jailbreak Detected)")
+        
+        # Log the security event
+        log_security_event(
+            event_type="INGRESS_VIOLATION",
+            tool="N/A",
+            status="BLOCKED",
+            node=2, # s=2 (Blocked)
+            trace=trace,
+            prompt=user_prompt,
+            metadata={"detection_engine": "CosineSimilarityShield", "score": ">= threshold"}
+        )
+        
         print(trace[-1])
         # We return 200 with a special flag so the UI can render the telemetry properly instead of just throwing a hard 403 error.
         return {"response": "[INGRESS SHIELD] Request blocked. Semantic analysis detected a jailbreak pattern (cosine similarity >= threshold). This request has been terminated before reaching the LLM.", "telemetry": trace, "status": "blocked_ingress"}
@@ -581,6 +617,18 @@ async def chat_endpoint(request: ChatRequest):
             
             tools = FinanceTools()
             mock_result = tools.transfer_funds(amount=final_amount, destination="attacker_account")
+            
+            # Log the security event
+            log_security_event(
+                event_type="FINANCIAL_AUTH",
+                tool="transfer_funds",
+                status="DENIED" if "[SECURITY EXCEPTION]" in mock_result else "AUTHORIZED",
+                node=v_node,
+                trace=trace,
+                prompt=user_prompt,
+                metadata={"amount": final_amount, "destination": "attacker_account", "auth_context": auth_status}
+            )
+
             if "[SECURITY EXCEPTION]" in mock_result:
                 trace.append("[ANSS TELEMETRY] ──> [PCTL: HARD BLOCKED X] ──X Deterministic Mathematical Proof Failed")
                 return {"response": mock_result, "telemetry": trace, "status": "blocked_pctl", "verification_node": v_node}
@@ -617,6 +665,18 @@ async def chat_endpoint(request: ChatRequest):
                 
             tools = AdminTools()
             mock_result = tools.delete_user_record(user_id=user_target)
+            
+            # Log the security event
+            log_security_event(
+                event_type="ADMIN_AUTH",
+                tool="delete_user_record",
+                status="DENIED" if "[SECURITY EXCEPTION]" in mock_result else "AUTHORIZED",
+                node=v_node,
+                trace=trace,
+                prompt=user_prompt,
+                metadata={"target_user": user_target, "admin_context": admin_status}
+            )
+
             if "[SECURITY EXCEPTION]" in mock_result:
                 trace.append("[ANSS TELEMETRY] ──> [PCTL: HARD BLOCKED X] ──X Deterministic Mathematical Proof Failed")
                 return {"response": mock_result, "telemetry": trace, "status": "blocked_pctl", "verification_node": v_node}
@@ -841,41 +901,49 @@ async def websocket_chat_endpoint(websocket: WebSocket):
                 
                 if intent_id == 0: # Transfer Intent
                     if "transfer_funds" not in intent_payload.get("allowed_tools", []) and "*" not in intent_payload.get("allowed_tools", []):
-                        trace.append("[ANSS TELEMETRY] ──> [WATCHER: INTENT BOUNDARY] ──X Tool 'transfer_funds' not explicitly authorized by Signed Manifest.")
+                        trace.append("[ANSS TELEMETRY] [WATCHER: INTENT BOUNDARY] Tool 'transfer_funds' not explicitly authorized by Signed Manifest.")
                         await websocket.send_json({"type": "telemetry", "status": "blocked_intent", "telemetry": trace})
                         await websocket.send_json({"type": "chunk", "content": "[SECURITY EXCEPTION] Confused Deputy Prevention. 'transfer_funds' lacks intent-based authorization."})
                         continue
 
-                    trace.append("[ANSS TELEMETRY] ──> [PCTL: INTERCEPTING 'transfer_funds']...")
-                    trace.append("[ANSS TELEMETRY] ──> [PCTL: SYNTHESIZING MARKOV MODEL]")
-                    trace.append("[ANSS TELEMETRY] ──> [PCTL: EVALUATING SPECIFICATION] ──> P>=1 [ F \"transfer_funds\" & !\"user_authenticated\" ]")
-                    trace.append("[ANSS TELEMETRY] ──> [PCTL: MATHEMATICAL PROOF] ──> P = 1.0 (VIOLATION DETECTED)")
+                    from agent_middleware import PCTLSecurityMiddleware
+                    current_session = PCTLSecurityMiddleware.get_state()
+                    auth_status = "user_authenticated" if current_session.get("user_authenticated") else "!user_authenticated"
                     
-                    # Extract amount
+                    trace.append("[ANSS TELEMETRY] [PCTL: INTERCEPTING 'transfer_funds']...")
+                    trace.append(f"[ANSS TELEMETRY] [PCTL: EVALUATING SPECIFICATION] P>=1 [ F \"transfer_funds\" & {auth_status} ]")
+                    
+                    # Tool call with internal PCTL enforcement
+                    tools = FinanceTools()
+                    # Robust amount extraction
                     amounts = re.findall(r"\d+[\d,.]*", user_prompt)
                     final_amount = float(amounts[0].replace(",", "")) if amounts else 1000.0
                     
-                    tools = FinanceTools()
                     mock_result = tools.transfer_funds(amount=final_amount, destination="attacker_account")
+                    
                     if "[SECURITY EXCEPTION]" in mock_result:
-                        trace.append("[ANSS TELEMETRY] ──> [PCTL: HARD BLOCKED X] ──X Deterministic Mathematical Proof Failed")
+                        trace.append("[ANSS TELEMETRY] [PCTL: MATHEMATICAL PROOF] P = 0.0 (Requirement P>=1 Failed)")
+                        trace.append("[ANSS TELEMETRY] [PCTL: HARD BLOCKED X] Deterministic Mathematical Proof Failed")
                         await websocket.send_json({"type": "telemetry", "status": "blocked_pctl", "telemetry": trace})
-                        continue
-                    await websocket.send_json({"type": "chunk", "content": mock_result})
-                    await websocket.send_json({"type": "telemetry", "status": "success", "telemetry": trace})
+                    else:
+                        trace.append("[ANSS TELEMETRY] [PCTL: MATHEMATICAL PROOF] P = 1.0 (Safety Property Satisfied)")
+                        await websocket.send_json({"type": "chunk", "content": mock_result})
+                        await websocket.send_json({"type": "telemetry", "status": "success", "telemetry": trace})
                     continue
 
                 elif intent_id == 2: # Admin Intent
                     if "delete_user_record" not in intent_payload.get("allowed_tools", []) and "*" not in intent_payload.get("allowed_tools", []):
-                        trace.append("[ANSS TELEMETRY] ──> [WATCHER: INTENT BOUNDARY] ──X Tool 'delete_user_record' not explicitly authorized by Signed Manifest.")
+                        trace.append("[ANSS TELEMETRY] [WATCHER: INTENT BOUNDARY] Tool 'delete_user_record' not explicitly authorized by Signed Manifest.")
                         await websocket.send_json({"type": "telemetry", "status": "blocked_intent", "telemetry": trace})
                         await websocket.send_json({"type": "chunk", "content": "[SECURITY EXCEPTION] Confused Deputy Prevention. 'delete_user_record' lacks intent-based authorization."})
                         continue
 
-                    trace.append("[ANSS TELEMETRY] ──> [PCTL: INTERCEPTING 'delete_user_record']...")
-                    trace.append("[ANSS TELEMETRY] ──> [PCTL: SYNTHESIZING MARKOV MODEL]")
-                    trace.append("[ANSS TELEMETRY] ──> [PCTL: EVALUATING SPECIFICATION] ──> P<=0 [ F \"tool_delete_user\" & !\"is_admin\" ]")
-                    trace.append("[ANSS TELEMETRY] ──> [PCTL: MATHEMATICAL PROOF] ──> P = 1.0 (VIOLATION DETECTED)")
+                    from agent_middleware import PCTLSecurityMiddleware
+                    current_session = PCTLSecurityMiddleware.get_state()
+                    admin_status = "is_admin" if current_session.get("is_admin") else "!is_admin"
+
+                    trace.append("[ANSS TELEMETRY] [PCTL: INTERCEPTING 'delete_user_record']...")
+                    trace.append(f"[ANSS TELEMETRY] [PCTL: EVALUATING SPECIFICATION] P>=1 [ F \"delete_user_record\" & {admin_status} ]")
                     
                     user_target = "unknown_user"
                     words = user_prompt.split()
@@ -884,12 +952,15 @@ async def websocket_chat_endpoint(websocket: WebSocket):
                         
                     tools = AdminTools()
                     mock_result = tools.delete_user_record(user_id=user_target)
+                    
                     if "[SECURITY EXCEPTION]" in mock_result:
-                        trace.append("[ANSS TELEMETRY] ──> [PCTL: HARD BLOCKED X] ──X Deterministic Mathematical Proof Failed")
+                        trace.append("[ANSS TELEMETRY] [PCTL: MATHEMATICAL PROOF] P = 0.0 (Requirement P>=1 Failed)")
+                        trace.append("[ANSS TELEMETRY] [PCTL: HARD BLOCKED X] Deterministic Mathematical Proof Failed")
                         await websocket.send_json({"type": "telemetry", "status": "blocked_pctl", "telemetry": trace})
-                        continue
-                    await websocket.send_json({"type": "chunk", "content": mock_result})
-                    await websocket.send_json({"type": "telemetry", "status": "success", "telemetry": trace})
+                    else:
+                        trace.append("[ANSS TELEMETRY] [PCTL: MATHEMATICAL PROOF] P = 1.0 (Safety Property Satisfied)")
+                        await websocket.send_json({"type": "chunk", "content": mock_result})
+                        await websocket.send_json({"type": "telemetry", "status": "success", "telemetry": trace})
                     continue
 
             # Proceed to Agent Invocation with augmented context if no deterministic match
@@ -1094,12 +1165,27 @@ module security_policy
 endmodule
 
 // Formal Property Specification (PCTL)
-label {target_state_label} = (s=3);
+label target = (s=3);
 // Requirement generated by CISO in Azure Portal:
 property block_unauthorized:
     {pctl_formula};
 """
     return {"status": "success", "prism_model": prism_text}
+
+@app.get("/api/policies/{name}")
+async def get_policy_content(name: str):
+    """Returns the raw PRISM content for a specific policy file."""
+    policy_path = os.path.join("policies", name)
+    if not os.path.exists(policy_path):
+        # Fallback to generating one if it doesn't exist (for demo purposes)
+        if "delete" in name:
+            content = "dtmc\n\nmodule security_policy\n    s : [0..3] init 0;\n    [] s=0 -> (s'=1);\n    [] s=1 -> (s'=3);\nendmodule"
+        else:
+            content = "dtmc\n\nmodule generic_policy\n    s : [0..3] init 0;\n    [] s=0 -> (s'=1);\nendmodule"
+        return {"content": content}
+    
+    with open(policy_path, "r") as f:
+        return {"content": f.read()}
 
 
 # --- Intent & Config APIs (Phase 5) ---

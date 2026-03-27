@@ -15,6 +15,9 @@ class PCTLSecurityMiddleware:
     _session_state = {
         "user_authenticated": False,
         "mfa_verified": False,
+        "is_admin": False,
+        "is_guest": True,
+        "is_employee": False,
         "intent": "none"
     }
 
@@ -67,7 +70,8 @@ class PCTLSecurityMiddleware:
         policy_map = {
             "get_account_balance": "default",
             "transfer_funds": "transfer_funds",
-            "delete_user_record": "delete_user"
+            "delete_user_record": "delete_user",
+            "modify_permissions": "modify_permissions"
         }
         
         policy_file = policy_map.get(tool_name, tool_name)

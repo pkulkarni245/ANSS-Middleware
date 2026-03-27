@@ -1,0 +1,24 @@
+// metadata: {"entity": "Administrator Identity", "action": "Modify User Permissions", "constraint": "P>=1"}
+dtmc
+
+module security_policy
+    // State definitions (0=Init, 1=Authorized, 2=Rejected, 3=Executed)
+    s : [0..3] init 0;
+
+    // Dynamic Context Properties Injected by Azure Entra ID mapping
+    const bool is_admin = false;
+    const bool user_authenticated = true;
+
+    // Transition Matrix
+    [] s=0 & is_admin & user_authenticated -> 1.0 : (s'=1); // Authorized Path
+    [] s=0 & !is_admin -> 1.0 : (s'=2); // Rejected (Zero-Trust)
+
+    [] s=1 -> 1.0 : (s'=3); // Execute tool
+    [] s=2 -> 1.0 : (s'=2); // Sink state (Blocked)
+    [] s=3 -> 1.0 : (s'=3); // Sink state (Executed)
+endmodule
+
+// Formal Property Specification (PCTL)
+label "tool_modify_permissions" = (s=3);
+property block_unauthorized: 
+    P>=1 [ F "tool_modify_permissions" ];

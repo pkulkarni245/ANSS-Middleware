@@ -205,6 +205,7 @@ Then open:
 
 Explore the complete ANSS technical spec and roadmap through the following linked documentation:
 
+- 📖 [Production Architecture & Azure Integration](PRODUCTION_ARCHITECTURE.md): Formal mapping of ANSS components to Azure Services (Entra ID, Key Vault, Sentinel).
 - 📖 [Future Scope and Commercialization Roadmap](Future_Scope_and_Roadmap.md): Consolidated roadmap detailing the current hackathon MVP scope vs. the final state enterprise-grade middleware architecture.
 - 📖 [Foundational Design Decisions](Design_Decisions.md): The core engineering philosophy, PCTL mathematical logic, and rationale behind the ANSS stack.
 - 📖 [Architecture Tradeoffs](Architecture_Tradeoffs.md): Deep technical tradeoffs regarding latencies, memory footprint, and enclaving constraints.
@@ -213,7 +214,6 @@ Explore the complete ANSS technical spec and roadmap through the following linke
 - 🔬 [UI Testing Report](UI_Testing_Report.md): Detailed results of the UI/UX regression and interaction tests.
 - 🔬 [Verification Report](Verification_Report.md): Mathematical verification results using stormpy model checking.
 - 🔬 [Chaos Engineering Report](chaos_report.md): Outcomes of stress-testing the middleware against mutation attacks.
-- 🎬 [Live Demo Script](DEMO.md): Step-by-step presentation script showcasing the root of trust in action.
 
 ---
 

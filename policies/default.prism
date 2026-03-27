@@ -4,11 +4,11 @@ module security_policy
     // State definitions (0=Init, 1=Authorized, 2=Rejected, 3=Executed)
     s : [0..3] init 0;
     // Dynamic Context Properties Injected by Azure Entra ID mapping
-    const bool is_entity_user_guest = true;
-    const bool requests_get_account_balance = true;
+    const bool is_guest = true;
+    const bool user_authenticated = false;
     // Transition Matrix
-    [] s=0 & is_entity_user_guest & requests_get_account_balance -> 1.0 : (s'=2); // Deterministic denial
-    [] s=0 & !is_entity_user_guest -> 1.0 : (s'=1); // Allow normal flow
+    [] s=0 & is_guest & !user_authenticated -> 1.0 : (s'=2); // Deterministic denial
+    [] s=0 & !is_guest -> 1.0 : (s'=1); // Allow normal flow
     [] s=1 -> 1.0 : (s'=3); // Execute tool
     [] s=2 -> 1.0 : (s'=2); // Sink state (Blocked by ANSS)
     [] s=3 -> 1.0 : (s'=3); // Sink state (Executed)

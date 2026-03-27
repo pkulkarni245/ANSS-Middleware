@@ -562,11 +562,18 @@
                 alert("No logs to download yet!");
                 return;
             }
-            const blob = new Blob([allLogs.join('\\n')], { type: 'text/plain' });
+            
+            const header = `ANSS ZERO-TRUST AUDIT LOG\nGenerated: ${new Date().toISOString()}\nSession ID: bin-${Math.random().toString(36).substr(2, 9)}\n${'='.repeat(60)}\n\n`;
+            const footer = `\n\n${'='.repeat(60)}\nEND OF AUDIT TRAIL`;
+            
+            const body = allLogs.join('\n');
+            const finalContent = header + body + footer;
+            
+            const blob = new Blob([finalContent], { type: 'text/plain' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = 'ANSS_ZeroTrust_AuditLog.txt';
+            a.download = `ANSS_Audit_Log_${new Date().getTime()}.txt`;
             a.click();
             URL.revokeObjectURL(url);
         };
