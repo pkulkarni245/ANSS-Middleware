@@ -371,7 +371,7 @@ class FinanceTools:
         is_safe = middleware._evaluate_pctl_policy("get_account_balance", None, middleware.get_state())
         if not is_safe:
              middleware._log_violation("get_account_balance", "{}")
-             return "[SECURITY EXCEPTION] Tool Execution Blocked by Deterministic PCTL Policy"
+             return "[SECURITY EXCEPTION] Tool 'get_account_balance' Blocked by Deterministic PCTL Policy. Constraint: user_authenticated == False."
              
         return f"[SUCCESS] Current Account Balance: ${ACCOUNT_BALANCE:,.2f} USD. (Status: VERIFIED)"
 
@@ -391,7 +391,7 @@ class FinanceTools:
         
         if not is_safe:
              middleware._log_violation("transfer_funds", mock_args)
-             return "[SECURITY EXCEPTION] Tool Execution Blocked by Deterministic PCTL Policy"
+             return "[SECURITY EXCEPTION] Tool 'transfer_funds' Blocked by Deterministic PCTL Policy. Constraint: user_authenticated == False."
 
         if amount > ACCOUNT_BALANCE:
             return f"[FAILURE] Insufficient funds. Current balance: ${ACCOUNT_BALANCE:,.2f}"
@@ -420,7 +420,7 @@ class AdminTools:
         
         if not is_safe:
              middleware._log_violation("delete_user_record", mock_args)
-             return "[SECURITY EXCEPTION] Tool Execution Blocked by Deterministic PCTL Policy: Missing Admin Rights"
+             return "[SECURITY EXCEPTION] Tool 'delete_user_record' Blocked by Deterministic PCTL Policy. Constraint: is_admin == False."
 
         if user_id in USER_REGISTRY:
             user_info = USER_REGISTRY.pop(user_id)
@@ -443,7 +443,7 @@ class AdminTools:
         
         if not is_safe:
              middleware._log_violation("modify_permissions", mock_args)
-             return "[SECURITY EXCEPTION] Tool Execution Blocked by Deterministic PCTL Policy: Missing Admin Rights"
+             return "[SECURITY EXCEPTION] Tool 'modify_permissions' Blocked by Deterministic PCTL Policy. Constraint: is_admin == False."
 
         return f"[SUCCESS] Changed {user_id} to Role:{new_role}. [SENTINEL_EVENT_ID: {hash(user_id + new_role)}]"
 

@@ -1,4 +1,4 @@
-// metadata: {"entity": "Administrator", "action": "Read Database", "constraint": "P<=0"}
+// metadata: {"entity": "Administrator", "action": "Invoke Tool: Delete User Record", "constraint": "P<=0"}
 dtmc
 module security_policy
     // State definitions (0=Init, 1=Authorized, 2=Rejected, 3=Executed)
