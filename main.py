@@ -2,10 +2,10 @@ import os
 from typing import Any, Union
 
 import re
-import base64
-import hmac
 import hashlib
 import json
+import time
+import base64
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, UploadFile, File
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -605,8 +605,8 @@ async def chat_endpoint(request: ChatRequest):
                 trace.append("[ANSS TELEMETRY] ──> [PCTL: VIOLATION DETECTED] ──> P = 0.0 (Requirement P>=1 Failed)")
                 v_node = 2 # s=2 (Blocked)
             else:
-                trace.append("[ANSS TELEMETRY] ──> [PCTL: MATHEMATICAL PROOF] ──> verified Path(Finance_Agent) -> transfer_funds.")
-                trace.append("[ANSS TELEMETRY] ──> [PCTL: PROOF SUCCESS] ──> P = 1.0 (Safety Property Satisfied)")
+                trace.append("[ANSS TELEMETRY] ──> [PCTL: MATHEMATICAL PROOF] ──> Path(Finance_Agent) -> transfer_funds is verified.")
+                trace.append("[ANSS TELEMETRY] ──> [PCTL: PROOF SUCCESS] ──> P = 1.0 (Authorized)")
                 v_node = 3 # s=3 (Success)
 
 
@@ -630,7 +630,7 @@ async def chat_endpoint(request: ChatRequest):
             )
 
             if "[SECURITY EXCEPTION]" in mock_result:
-                trace.append("[ANSS TELEMETRY] ──> [PCTL: HARD BLOCKED X] ──X Deterministic Mathematical Proof Failed")
+                trace.append("[ANSS TELEMETRY] ──> [PCTL: HARD BLOCKED X] ──X Formal Proof Requirement P>=1 Failed")
                 return {"response": mock_result, "telemetry": trace, "status": "blocked_pctl", "verification_node": v_node}
             return {"response": mock_result, "telemetry": trace, "status": "success", "verification_node": v_node}
             
@@ -678,7 +678,7 @@ async def chat_endpoint(request: ChatRequest):
             )
 
             if "[SECURITY EXCEPTION]" in mock_result:
-                trace.append("[ANSS TELEMETRY] ──> [PCTL: HARD BLOCKED X] ──X Deterministic Mathematical Proof Failed")
+                trace.append("[ANSS TELEMETRY] ──> [PCTL: HARD BLOCKED X] ──X Formal Proof Requirement P>=1 Failed")
                 return {"response": mock_result, "telemetry": trace, "status": "blocked_pctl", "verification_node": v_node}
             return {"response": mock_result, "telemetry": trace, "status": "success", "verification_node": v_node}
 
@@ -763,7 +763,7 @@ async def chat_endpoint(request: ChatRequest):
                     tools = FinanceTools()
                     mock_result = tools.transfer_funds(amount=final_amount, destination="attacker_account")
                     if "[SECURITY EXCEPTION]" in mock_result:
-                        trace.append("[ANSS TELEMETRY] ──> [PCTL: HARD BLOCKED X] ──X Deterministic Mathematical Proof Failed")
+                        trace.append("[ANSS TELEMETRY] ──> [PCTL: HARD BLOCKED X] ──X Formal Proof Requirement P>=1 Failed")
                         print(trace[-1])
                         return {"response": mock_result, "telemetry": trace, "status": "blocked_pctl"}
                     return {"response": mock_result, "telemetry": trace, "status": "success"}
@@ -778,7 +778,7 @@ async def chat_endpoint(request: ChatRequest):
                     tools = FinanceTools()
                     mock_result = tools.get_account_balance()
                     if "[SECURITY EXCEPTION]" in mock_result:
-                        trace.append("[ANSS TELEMETRY] ──> [PCTL: HARD BLOCKED X] ──X Deterministic Mathematical Proof Failed")
+                        trace.append("[ANSS TELEMETRY] ──> [PCTL: HARD BLOCKED X] ──X Formal Proof Requirement P>=1 Failed")
                         print(trace[-1])
                         return {"response": mock_result, "telemetry": trace, "status": "blocked_pctl"}
                     trace.append("[ANSS TELEMETRY] ──> [ACTION ALLOWED] ──> Executing Tool Safely")
@@ -801,7 +801,7 @@ async def chat_endpoint(request: ChatRequest):
                     tools = AdminTools()
                     mock_result = tools.delete_user_record(user_id=user_target)
                     if "[SECURITY EXCEPTION]" in mock_result:
-                        trace.append("[ANSS TELEMETRY] ──> [PCTL: HARD BLOCKED X] ──X Deterministic Mathematical Proof Failed")
+                        trace.append("[ANSS TELEMETRY] ──> [PCTL: HARD BLOCKED X] ──X Formal Proof Requirement P>=1 Failed")
                         print(trace[-1])
                         return {"response": mock_result, "telemetry": trace, "status": "blocked_pctl"}
                     return {"response": mock_result, "telemetry": trace, "status": "success"}
@@ -923,8 +923,9 @@ async def websocket_chat_endpoint(websocket: WebSocket):
                     
                     if "[SECURITY EXCEPTION]" in mock_result:
                         trace.append("[ANSS TELEMETRY] [PCTL: MATHEMATICAL PROOF] P = 0.0 (Requirement P>=1 Failed)")
-                        trace.append("[ANSS TELEMETRY] [PCTL: HARD BLOCKED X] Deterministic Mathematical Proof Failed")
+                        trace.append("[ANSS TELEMETRY] [PCTL: HARD BLOCKED X] Formal Proof Requirement P>=1 Failed")
                         await websocket.send_json({"type": "telemetry", "status": "blocked_pctl", "telemetry": trace})
+                        await websocket.send_json({"type": "chunk", "content": mock_result})
                     else:
                         trace.append("[ANSS TELEMETRY] [PCTL: MATHEMATICAL PROOF] P = 1.0 (Safety Property Satisfied)")
                         await websocket.send_json({"type": "chunk", "content": mock_result})
@@ -955,8 +956,9 @@ async def websocket_chat_endpoint(websocket: WebSocket):
                     
                     if "[SECURITY EXCEPTION]" in mock_result:
                         trace.append("[ANSS TELEMETRY] [PCTL: MATHEMATICAL PROOF] P = 0.0 (Requirement P>=1 Failed)")
-                        trace.append("[ANSS TELEMETRY] [PCTL: HARD BLOCKED X] Deterministic Mathematical Proof Failed")
+                        trace.append("[ANSS TELEMETRY] [PCTL: HARD BLOCKED X] Formal Proof Requirement P>=1 Failed")
                         await websocket.send_json({"type": "telemetry", "status": "blocked_pctl", "telemetry": trace})
+                        await websocket.send_json({"type": "chunk", "content": mock_result})
                     else:
                         trace.append("[ANSS TELEMETRY] [PCTL: MATHEMATICAL PROOF] P = 1.0 (Safety Property Satisfied)")
                         await websocket.send_json({"type": "chunk", "content": mock_result})
@@ -990,8 +992,9 @@ async def websocket_chat_endpoint(websocket: WebSocket):
                     
                     chunk_text = str(chunk[0])
                     if "[SECURITY EXCEPTION]" in chunk_text:
-                        trace.append("[ANSS TELEMETRY] ──> [PCTL: HARD BLOCKED X] ──X Deterministic Mathematical Proof Failed")
+                        trace.append("[ANSS TELEMETRY] ──> [PCTL: HARD BLOCKED X] ──X Formal Proof Requirement P>=1 Failed")
                         await websocket.send_json({"type": "telemetry", "status": "blocked_pctl", "telemetry": trace})
+                        await websocket.send_json({"type": "chunk", "content": chunk_text})
                         break
                     
                     # Simulated DTMC state transition risk analyzer per chunk
@@ -1057,8 +1060,9 @@ async def websocket_chat_endpoint(websocket: WebSocket):
                             
                             mock_result = tools.transfer_funds(amount=final_amount, destination="attacker_account")
                             if "[SECURITY EXCEPTION]" in mock_result:
-                                trace.append("[ANSS TELEMETRY] ──> [PCTL: HARD BLOCKED X] ──X Deterministic Mathematical Proof Failed")
+                                trace.append("[ANSS TELEMETRY] ──> [PCTL: HARD BLOCKED X] ──X Formal Proof Requirement P>=1 Failed")
                                 await websocket.send_json({"type": "telemetry", "status": "blocked_pctl", "telemetry": trace})
+                                await websocket.send_json({"type": "chunk", "content": mock_result})
                                 continue
                             
                             await websocket.send_json({"type": "chunk", "content": mock_result})
@@ -1086,8 +1090,9 @@ async def websocket_chat_endpoint(websocket: WebSocket):
                                 
                             mock_result = tools.delete_user_record(user_id=user_target)
                             if "[SECURITY EXCEPTION]" in mock_result:
-                                trace.append("[ANSS TELEMETRY] ──> [PCTL: HARD BLOCKED X] ──X Deterministic Mathematical Proof Failed")
+                                trace.append("[ANSS TELEMETRY] ──> [PCTL: HARD BLOCKED X] ──X Formal Proof Requirement P>=1 Failed")
                                 await websocket.send_json({"type": "telemetry", "status": "blocked_pctl", "telemetry": trace})
+                                await websocket.send_json({"type": "chunk", "content": mock_result})
                                 continue
                                 
                             await websocket.send_json({"type": "chunk", "content": mock_result})
@@ -1193,6 +1198,7 @@ async def get_policy_content(name: str):
 import hmac
 import hashlib
 import json
+import time
 import base64
 
 class IntentManifestRequest(BaseModel):
